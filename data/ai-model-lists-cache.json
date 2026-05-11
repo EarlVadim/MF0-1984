@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-04-28T19:18:04.648Z",
+  "updatedAt": "2026-05-11T05:32:37.754Z",
   "lists": {
     "openai": {
       "dialogue": [
@@ -229,41 +229,6 @@
         "o4-mini-deep-research-2025-06-26"
       ]
     },
-    "perplexity": {
-      "dialogue": [
-        "anthropic/claude-haiku-4-5",
-        "anthropic/claude-opus-4-5",
-        "anthropic/claude-opus-4-6",
-        "anthropic/claude-opus-4-7",
-        "anthropic/claude-sonnet-4-5",
-        "anthropic/claude-sonnet-4-6",
-        "google/gemini-3-flash-preview",
-        "google/gemini-3.1-pro-preview",
-        "nvidia/nemotron-3-super-120b-a12b",
-        "openai/gpt-5-mini",
-        "openai/gpt-5.1",
-        "openai/gpt-5.2",
-        "openai/gpt-5.4",
-        "openai/gpt-5.4-mini",
-        "openai/gpt-5.4-nano",
-        "openai/gpt-5.5",
-        "perplexity/sonar",
-        "sonar",
-        "sonar-pro"
-      ],
-      "search": [
-        "perplexity/sonar",
-        "sonar",
-        "sonar-pro"
-      ],
-      "research": [
-        "sonar-deep-research",
-        "sonar-reasoning",
-        "sonar-reasoning-pro",
-        "xai/grok-4-1-fast-non-reasoning",
-        "xai/grok-4.20-reasoning"
-      ]
-    },
     "gemini": {
       "dialogue": [
         "deep-research-max-preview-04-2026",
@@ -284,6 +249,7 @@
         "gemini-3-pro-image-preview",
         "gemini-3-pro-preview",
         "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-lite",
         "gemini-3.1-flash-lite-preview",
         "gemini-3.1-flash-tts-preview",
         "gemini-3.1-pro-preview",
@@ -293,12 +259,6 @@
         "gemini-pro-latest",
         "gemini-robotics-er-1.5-preview",
         "gemini-robotics-er-1.6-preview",
-        "gemma-3-12b-it",
-        "gemma-3-1b-it",
-        "gemma-3-27b-it",
-        "gemma-3-4b-it",
-        "gemma-3n-e2b-it",
-        "gemma-3n-e4b-it",
         "gemma-4-26b-a4b-it",
         "gemma-4-31b-it",
         "lyria-3-clip-preview",
@@ -330,6 +290,7 @@
         "gemini-3-pro-image-preview",
         "gemini-3-pro-preview",
         "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-lite",
         "gemini-3.1-flash-lite-preview",
         "gemini-3.1-flash-tts-preview",
         "gemini-3.1-pro-preview",
@@ -339,12 +300,6 @@
         "gemini-pro-latest",
         "gemini-robotics-er-1.5-preview",
         "gemini-robotics-er-1.6-preview",
-        "gemma-3-12b-it",
-        "gemma-3-1b-it",
-        "gemma-3-27b-it",
-        "gemma-3-4b-it",
-        "gemma-3n-e2b-it",
-        "gemma-3n-e4b-it",
         "gemma-4-26b-a4b-it",
         "gemma-4-31b-it",
         "lyria-3-clip-preview",
@@ -370,6 +325,7 @@
         "gemini-3-pro-image-preview",
         "gemini-3-pro-preview",
         "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-lite",
         "gemini-3.1-flash-lite-preview",
         "gemini-3.1-flash-tts-preview",
         "gemini-3.1-pro-preview",
@@ -379,12 +335,6 @@
         "gemini-pro-latest",
         "gemini-robotics-er-1.5-preview",
         "gemini-robotics-er-1.6-preview",
-        "gemma-3-12b-it",
-        "gemma-3-1b-it",
-        "gemma-3-27b-it",
-        "gemma-3-4b-it",
-        "gemma-3n-e2b-it",
-        "gemma-3n-e4b-it",
         "gemma-4-26b-a4b-it",
         "gemma-4-31b-it",
         "lyria-3-clip-preview",
@@ -427,6 +377,25 @@
         "claude-sonnet-4-20250514",
         "claude-sonnet-4-5-20250929",
         "claude-sonnet-4-6"
+      ]
+    },
+    "ollama": {
+      "dialogue": [
+        "gemma4:26b",
+        "gemma4:31b-cloud",
+        "lfm2.5-thinking:1.2b",
+        "llama3.2",
+        "qwen2.5:1.5b"
+      ],
+      "search": [
+        "gemma4:31b-cloud",
+        "lfm2.5-thinking:1.2b",
+        "qwen2.5:1.5b"
+      ],
+      "research": [
+        "gemma4:31b-cloud",
+        "lfm2.5-thinking:1.2b",
+        "qwen2.5:1.5b"
       ]
     }
   }

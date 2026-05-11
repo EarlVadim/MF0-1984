@@ -5033,3 +5033,41 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
 .dark .settings-model-picker-option[aria-selected="true"]:focus-visible {
   background: hsl(var(--primary) / 0.42);
 }
+
+/* ── AI opinion participants checkboxes ───────────────────────────── */
+.settings-modal-hint {
+  font-size: 0.78rem;
+  color: var(--color-muted, #888);
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+.settings-ai-opinion-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-ai-opinion-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+}
+.settings-ai-opinion-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent, #4a9eff);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.settings-ai-opinion-row label {
+  cursor: pointer;
+  user-select: none;
+  color: var(--color-text, inherit);
+}
+.settings-ai-opinion-row.no-key label {
+  opacity: 0.4;
+}
+.settings-ai-opinion-row.no-key input {
+  opacity: 0.4;
+  pointer-events: none;
+}

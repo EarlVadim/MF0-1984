@@ -358,7 +358,12 @@ export async function callLlm(opts) {
       break;
     }
 
-    case "perplexity": {
+    case "ollama":
+    case "ollama-kimi":
+    case "ollama-ds": {
+      // All Ollama variants share the same local endpoint.
+      // Model name comes from userChatModels and is set in `model` param.
+      // No API key required; web search / citations not supported.
       const systemMsg = system ? [{ role: "system", content: system }] : [];
       const allMsgs = mergeAdjacentRoles([
         ...systemMsg,
@@ -368,15 +373,9 @@ export async function callLlm(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      if (googleSearch) {
-        body.disable_search = false;
-        body.web_search_options = { search_context_size: "high", search_type: "pro" };
-      } else if (disableSearch) {
-        body.disable_search = true;
-      }
-      const res = await fetch("/api/llm/perplexity/chat/completions", {
+      const res = await fetch("/api/llm/ollama/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: abortSignal || undefined,
       });
@@ -384,10 +383,6 @@ export async function callLlm(opts) {
       const data = await res.json();
       text = openAiContentToString(data.choices?.[0]?.message?.content);
       if (!text.trim()) throw new Error("Empty API response");
-      if (withCitations) {
-        const citeRaw = pickPerplexityCitationPayload(data);
-        text = mergePlainBracketRefsWithCitationList(text, citeRaw);
-      }
       rawUsage = usageFromOpenAiStyle(data.usage);
       break;
     }
@@ -469,7 +464,10 @@ export async function callLlmStream(opts) {
       break;
     }
 
-    case "perplexity": {
+    case "ollama":
+    case "ollama-kimi":
+    case "ollama-ds": {
+      // Ollama streaming (all variants) via OpenAI-compatible SSE endpoint.
       const systemMsg = system ? [{ role: "system", content: system }] : [];
       const allMsgs = mergeAdjacentRoles([
         ...systemMsg,
@@ -477,25 +475,20 @@ export async function callLlmStream(opts) {
       ]);
       /** @type {Record<string, unknown>} */
       const body = { model, messages: allMsgs, stream: true };
-      if (useWebGrounding) {
-        body.disable_search = false;
-        body.web_search_options = { search_context_size: "high", search_type: "pro" };
-      } else if (disableSearch) {
-        body.disable_search = true;
-      }
-      const res = await fetch("/api/llm/perplexity/chat/completions", {
+      if (temperature != null) body.temperature = temperature;
+      if (maxTokens) body.max_tokens = maxTokens;
+      const res = await fetch("/api/llm/ollama/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
-          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify(body),
         signal: abortSignal || undefined,
       });
-      const pStream = await streamOpenAICompatJson(res, onDelta);
-      text = mergePlainBracketRefsWithCitationList(pStream.text, pStream.citations);
-      rawUsage = pStream.usage ?? null;
+      const oStream = await streamOpenAICompatJson(res, onDelta);
+      text = oStream.text;
+      rawUsage = oStream.usage ?? null;
       break;
     }
 

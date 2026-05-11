@@ -9,6 +9,7 @@ data/*.sqlite-wal
 data/*.sqlite-shm
 data/mf0-access-data-dump-enrichment-import.json
 voice-replies/
+vite.config.js
 
 # Internal benchmark notes — not for the public GitHub repo (keep locally if needed).
 LOCOMO_RUNBOOK_FOR_CHATGPT.md

@@ -197,21 +197,6 @@ function isLikelyPerplexityResearchModel(id) {
   return s.includes("reasoning") || s.includes("deep-research") || s.includes("deep_research") || s.includes("research");
 }
 
-/**
- * @param {string} key
- * @returns {Promise<string[]>}
- */
-export async function fetchPerplexityModelIds(key) {
-  const k = String(key ?? "").trim();
-  if (!k) return [];
-  const res = await fetch("/api/llm/perplexity/v1/models", {
-    headers: { Authorization: `Bearer ${k}` },
-  });
-  if (!res.ok) return [];
-  const j = await res.json();
-  const rows = Array.isArray(j?.data) ? j.data : [];
-  return [...new Set(rows.map((r) => String(r?.id ?? "").trim()).filter(Boolean))];
-}
 
 /**
  * @param {string} key
@@ -241,4 +226,27 @@ export async function fetchPerplexityResearchModelIds(key) {
   const all = await fetchPerplexityModelIds(key);
   const r = all.filter(isLikelyPerplexityResearchModel);
   return r.length ? r : all;
+}
+
+// ─── Ollama (local) ───────────────────────────────────────────────────────────
+
+/**
+ * Fetch available model names from a locally running Ollama instance.
+ * Calls GET /api/tags on 127.0.0.1:11434 via the MF0-1984 server proxy.
+ * No API key required.
+ * @returns {Promise<string[]>}
+ */
+export async function fetchOllamaModelIds() {
+  try {
+    const res = await fetch("/api/llm/ollama/api/tags", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const models = Array.isArray(data.models) ? data.models : [];
+    return models.map((m) => String(m.name ?? "")).filter(Boolean).sort();
+  } catch {
+    return [];
+  }
 }

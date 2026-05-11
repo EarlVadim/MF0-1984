@@ -11,8 +11,10 @@ export const ANALYTICS_USD_PER_1M = {
   anthropic: { input: 3, output: 15, tier: "Claude Sonnet class (illustrative)" },
   /** Gemini Flash list pricing */
   "gemini-flash": { input: 0.5, output: 3, tier: "Gemini Flash (illustrative)" },
-  /** Perplexity API varies by underlying model — midpoint of a typical range */
-  perplexity: { input: 2.75, output: 9, tier: "Perplexity API mid-range (illustrative)" },
+  /** Ollama — local/cloud model, no API cost */
+  ollama:        { input: 0, output: 0, tier: "Ollama (free)" },
+  "ollama-kimi": { input: 0, output: 0, tier: "Kimi via Ollama (free)" },
+  "ollama-ds":   { input: 0, output: 0, tier: "DeepSeek via Ollama (free)" },
 };
 
 /**

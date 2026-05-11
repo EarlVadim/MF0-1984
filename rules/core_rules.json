@@ -31,6 +31,14 @@
     {
       "text": "использовать только латиницу",
       "addedAt": "2026-05-07T05:22:48.542Z"
+    },
+    {
+      "text": "Always respond exclusively in Russian, regardless of the input language.",
+      "addedAt": "2026-05-09T10:49:11.114Z"
+    },
+    {
+      "text": "Technical terms and code are the only exceptions to the Russian-only rule.",
+      "addedAt": "2026-05-09T10:49:11.114Z"
     }
   ]
 }

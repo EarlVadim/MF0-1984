@@ -4,7 +4,7 @@ import { escapeHtml } from "./escapeHtml.js";
 import { estimateProviderUsd, formatUsdEstimate } from "./analyticsPricing.js";
 import { getChatAnalysisPriority } from "./chatAnalysisPriority.js";
 
-const PROVIDER_IDS = ["openai", "perplexity", "gemini-flash", "anthropic"];
+const PROVIDER_IDS = ["openai", "ollama", "ollama-kimi", "ollama-ds", "gemini-flash", "anthropic"];
 
 /** `YYYY-MM-DD` → `MM.DD` for chart axis */
 function chartDayLabelMmDd(isoDate) {

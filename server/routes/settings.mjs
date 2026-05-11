@@ -31,4 +31,21 @@ router.post("/settings/project-cache-clear-multimedia", (_req, res) => {
   }
 });
 
+/**
+ * Returns which LLM providers have API keys actually configured in .env.
+ * Used by the frontend to skip providers without keys in AI opinion / model selection.
+ * Response: { ok: true, configured: { openai: bool, ollama: bool, "gemini-flash": bool, anthropic: bool } }
+ */
+router.get("/settings/configured-providers", (_req, res) => {
+  const configured = {
+    openai:          Boolean(String(process.env.OPENAI_API_KEY    ?? "").trim()),
+    ollama:          true,   // local Ollama — always available
+    "ollama-kimi":   true,   // kimi-k2.6:cloud via Ollama
+    "ollama-ds":     true,   // deepseek-v4-pro:cloud via Ollama
+    "gemini-flash":  Boolean(String(process.env.GEMINI_API_KEY    ?? "").trim()),
+    anthropic:       Boolean(String(process.env.ANTHROPIC_API_KEY ?? "").trim()),
+  };
+  res.json({ ok: true, configured });
+});
+
 export default router;

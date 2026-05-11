@@ -18,7 +18,7 @@ import {
 } from "./memoryKeepers.js";
 import { renderAssistantMarkdown } from "./markdown.js";
 import { highlightAssistantMarkdownCodeBlocks } from "./markdownCodeHighlight.js";
-import { getModelApiKeys, hasAnyModelApiKey } from "./modelEnv.js";
+import { getModelApiKeys, hasAnyModelApiKey, initModelEnv } from "./modelEnv.js";
 import {
   closeAllSettingsModelPickers,
   initSettingsModelSelects,
@@ -230,7 +230,7 @@ const INTRO_COACH_SYSTEM_APPEND =
 
 const ACCESS_SECTION_SYSTEM_APPEND =
   "You are in the **Access** section: the user records **third-party** services they rely on — HTTP APIs, hosted inference or job-queue endpoints, geodata feeds, docs URLs, and **credentials those services require** (API keys, bearer tokens, `Authorization: …` lines).\n" +
-  "**Only** out of scope here: keys or configuration for **this app’s chat LLM providers** (OpenAI, Anthropic, Google Gemini, Perplexity as in `.env`) and internal model routing — not user-managed external APIs.\n" +
+  "**Only** out of scope here: keys or configuration for **this app’s chat LLM providers** (OpenAI, Anthropic, Google Gemini, Ollama as in `.env`) and internal model routing — not user-managed external APIs.\n" +
   "When the user shares a third-party key or token for a named external product, **do not** refuse, lecture that you cannot store secrets, or pivot to generic tutorials unless they asked. The machine runs **Keeper 2** after each turn and merges structured rows into the **local** Access store (SQLite) from the transcript; you do not write the database yourself. Respond briefly and helpfully: acknowledge, confirm what you understood, ask only for missing fields — **never** claim the project cannot record what they pasted.\n" +
   "**What actually lands in the store:** only what Keeper 2 extracts into fixed fields (`name`, `description`, `endpointUrl`, `accessKey`, and long free-form `notes`). Your chat reply is **not** copied verbatim into the database. Do **not** tell the user you \"saved the whole message\" or \"everything is recorded\" if you mean long markdown, tables, or every example — say instead that the app will persist the **structured** details from the conversation, or summarize what belongs in those fields.\n" +
   "If the rules digest in context sounds broadly anti-secret, it still **does not** override this paragraph for **third-party** service credentials in Access.\n" +
@@ -772,6 +772,7 @@ function initSettingsModal() {
     },
   });
   initSettingsAiPriorityBadges();
+  initAiOpinionParticipants();
   initChatAnalysisPrioritySettings({
     onSave() {
       appendActivityLog("Chat analysis priority saved");
@@ -1548,7 +1549,27 @@ if (versionEl) {
 }
 
 /** Default order for picking the active provider */
-const PROVIDER_ORDER = ["openai", "perplexity", "gemini-flash", "anthropic"];
+const PROVIDER_ORDER = ["openai", "ollama", "ollama-kimi", "ollama-ds", "gemini-flash", "anthropic"];
+
+/** LocalStorage key — value is JSON array of provider IDs enabled for AI opinion. */
+const AI_OPINION_PARTICIPANTS_KEY = "mf0.settings.aiOpinionParticipants";
+
+/** Read enabled AI opinion participants from localStorage. Falls back to all providers. */
+function getAiOpinionParticipants() {
+  try {
+    const raw = localStorage.getItem(AI_OPINION_PARTICIPANTS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length >= 2) return parsed;
+    }
+  } catch {}
+  return [...PROVIDER_ORDER]; // default: all providers
+}
+
+/** Save the enabled participants list to localStorage. */
+function setAiOpinionParticipants(ids) {
+  localStorage.setItem(AI_OPINION_PARTICIPANTS_KEY, JSON.stringify(ids));
+}
 const DEFAULT_CHAT_PROVIDER_STORAGE_KEY = "mf0.settings.defaultChatProvider";
 
 function providerHasKey(keys, id) {
@@ -1575,10 +1596,12 @@ function setDefaultChatProvider(providerId) {
 }
 
 /**
-/** Web search mode: Gemini → Perplexity → Claude → ChatGPT */
+/** Web search mode: Gemini → Ollama → Claude → ChatGPT */
 const WEB_SEARCH_PROVIDER_PRIORITY = [
   "gemini-flash",
-  "perplexity",
+  "ollama",
+  "ollama-kimi",
+  "ollama-ds",
   "anthropic",
   "openai",
 ];
@@ -1627,11 +1650,13 @@ function isAbortErrorLike(err) {
 /** Provider ids with API keys, user’s active model first (for AI talks handoff list). */
 function aiTalksProvidersWithKeysOrdered(primaryProviderId) {
   const keys = getModelApiKeys();
+  const participants = getAiOpinionParticipants();
   const ordered = [primaryProviderId, ...PROVIDER_ORDER.filter((id) => id && id !== primaryProviderId)];
   /** @type {string[]} */
   const out = [];
   for (const id of ordered) {
     if (!id || out.includes(id)) continue;
+    if (!participants.includes(id)) continue;       // skip if unchecked in settings
     if (String(keys[id] ?? "").trim()) out.push(id);
   }
   return out;
@@ -1639,8 +1664,10 @@ function aiTalksProvidersWithKeysOrdered(primaryProviderId) {
 
 function hasAtLeastTwoModelKeys() {
   const keys = getModelApiKeys();
+  const participants = getAiOpinionParticipants();
   let n = 0;
   for (const id of PROVIDER_ORDER) {
+    if (!participants.includes(id)) continue;
     if (String(keys[id] ?? "").trim()) n += 1;
     if (n >= 2) return true;
   }
@@ -1648,12 +1675,14 @@ function hasAtLeastTwoModelKeys() {
 }
 
 const AI_TALKS_HANDOFF_RE =
-  /HANDOFF:\s*(openai|anthropic|gemini-flash|perplexity)\s*$/im;
+  /HANDOFF:\s*(openai|anthropic|gemini-flash|ollama|ollama-kimi|ollama-ds)\s*$/im;
 const AI_TALKS_MAX_TURNS = 20;
 const AI_TALKS_ROUTING_GUIDE = [
   "- If the task needs creative ideation or non-obvious options -> HANDOFF: openai (ChatGPT).",
   "- If someone must check current web facts/sources -> HANDOFF: gemini-flash (Gemini).",
-  "- If the team needs dry trade-off weighing / objective structure -> HANDOFF: perplexity (Perplexity).",
+  "- If the team needs dry trade-off weighing / objective structure -> HANDOFF: ollama (Ollama).",
+  "- If the task benefits from Kimi reasoning -> HANDOFF: ollama-kimi (Kimi).",
+  "- If the task benefits from DeepSeek coding/analysis -> HANDOFF: ollama-ds (DeepSeek).",
   "- If you need critical evaluation, risk review, or quality judgment -> HANDOFF: anthropic (Claude).",
   "- Do not rotate models mechanically. Choose based on what is needed next to solve the user's task.",
 ].join("\n");
@@ -1855,9 +1884,11 @@ function buildAiTalksCritiqueUserPrompt(
   ].join("\n");
 }
 
-/** Deep research mode: Perplexity → ChatGPT → Gemini → Claude */
+/** Deep research mode: Ollama → ChatGPT → Gemini → Claude */
 const DEEP_RESEARCH_PROVIDER_PRIORITY = [
-  "perplexity",
+  "ollama",
+  "ollama-kimi",
+  "ollama-ds",
   "openai",
   "gemini-flash",
   "anthropic",
@@ -1929,7 +1960,7 @@ function activateProviderForWebSearch() {
     }
   }
   appendActivityLog(
-    "Web search: no Gemini / Perplexity / Claude / ChatGPT keys in .env",
+    "Web search: no Gemini / Ollama / Claude / ChatGPT keys in .env",
   );
 }
 
@@ -1943,7 +1974,7 @@ function activateProviderForDeepResearch() {
     }
   }
   appendActivityLog(
-    "Deep research: no Perplexity / ChatGPT / Gemini / Claude keys in .env",
+    "Deep research: no Ollama / ChatGPT / Gemini / Claude keys in .env",
   );
 }
 
@@ -1960,7 +1991,7 @@ function activateProviderForImageCreation() {
 }
 
 /** In Create image mode, providers without image API are unavailable */
-const IMAGE_MODE_DISABLED_PROVIDERS = new Set(["perplexity", "anthropic"]);
+const IMAGE_MODE_DISABLED_PROVIDERS = new Set(["ollama", "ollama-kimi", "ollama-ds", "anthropic"]);
 
 function refreshModelBadges() {
   const wrap = document.getElementById("model-badges");
@@ -2101,6 +2132,55 @@ function initSettingsAiPriorityBadges() {
     refreshModelBadges();
     refreshSettingsAiPriorityBadges();
     appendActivityLog(`Default chat model: ${PROVIDER_DISPLAY[pid] ?? pid}`);
+  });
+}
+
+/** Render and wire the AI opinion participant checkboxes in Settings. */
+function initAiOpinionParticipants() {
+  const wrap = document.getElementById("settings-ai-opinion-checkboxes");
+  if (!(wrap instanceof HTMLElement) || wrap.dataset.bound === "1") return;
+  wrap.dataset.bound = "1";
+
+  const keys = getModelApiKeys();
+  const participants = getAiOpinionParticipants();
+
+  // Build a checkbox row for every known provider
+  wrap.innerHTML = "";
+  for (const id of PROVIDER_ORDER) {
+    const hasKey = Boolean(String(keys[id] ?? "").trim());
+    const label  = PROVIDER_DISPLAY[id] ?? id;
+    const checked = participants.includes(id);
+
+    const row   = document.createElement("div");
+    row.className = "settings-ai-opinion-row" + (hasKey ? "" : " no-key");
+
+    const cb  = document.createElement("input");
+    cb.type   = "checkbox";
+    cb.id     = `ai-opinion-cb-${id}`;
+    cb.checked = checked && hasKey;
+    cb.disabled = !hasKey;
+    cb.dataset.provider = id;
+
+    const lbl  = document.createElement("label");
+    lbl.htmlFor = cb.id;
+    lbl.textContent = hasKey ? label : `${label} (no key)`;
+
+    row.append(cb, lbl);
+    wrap.append(row);
+  }
+
+  // On change: persist selection (require ≥ 2)
+  wrap.addEventListener("change", () => {
+    const checked = [...wrap.querySelectorAll("input[type=checkbox]:checked")]
+      .map((el) => el.dataset.provider)
+      .filter(Boolean);
+    if (checked.length < 2) {
+      // Prevent deselecting below 2 — re-check the last unchecked box
+      const last = wrap.querySelector("input[type=checkbox]:not(:checked):not(:disabled)");
+      if (last instanceof HTMLInputElement) last.checked = true;
+      return;
+    }
+    setAiOpinionParticipants(checked);
   });
 }
 
@@ -7224,11 +7304,16 @@ function bootApp() {
   }
 }
 
-if (import.meta.env.DEV && !hasAnyModelApiKey()) {
-  const blocker = document.getElementById("env-keys-blocker");
-  const root = document.querySelector(".app-root");
-  if (blocker) blocker.hidden = false;
-  if (root) root.inert = true;
-} else {
-  bootApp();
-}
+// Fetch which providers have real keys on the server before booting the UI.
+// This ensures AI opinion / provider badges only show actually-available providers.
+(async () => {
+  await initModelEnv();
+  if (import.meta.env.DEV && !hasAnyModelApiKey()) {
+    const blocker = document.getElementById("env-keys-blocker");
+    const root = document.querySelector(".app-root");
+    if (blocker) blocker.hidden = false;
+    if (root) root.inert = true;
+  } else {
+    bootApp();
+  }
+})();

@@ -18,10 +18,12 @@ import { titleFromUserMessage } from "./chatPersistence.js";
 import { getUserAiModel } from "./userChatModels.js";
 
 export const PROVIDER_DISPLAY = {
-  openai: "ChatGPT",
-  perplexity: "Perplexity",
+  openai:        "ChatGPT",
+  ollama:        "Ollama",
+  "ollama-kimi": "Kimi",
+  "ollama-ds":   "DeepSeek",
   "gemini-flash": "Gemini",
-  anthropic: "Claude",
+  anthropic:     "Claude",
 };
 
 /**
@@ -105,20 +107,40 @@ function pickGemini(ws, dr) {
   return geminiDialogue();
 }
 
-function perplexityDialogue() {
-  return getUserAiModel("perplexity", "dialogue");
+function ollamaDialogue() {
+  return getUserAiModel("ollama", "dialogue");
 }
-function perplexitySearch() {
-  return getUserAiModel("perplexity", "search");
+function ollamaSearch() {
+  return getUserAiModel("ollama", "search");
 }
-function perplexityResearch() {
-  return getUserAiModel("perplexity", "research");
+function ollamaResearch() {
+  return getUserAiModel("ollama", "research");
 }
 /** @param {boolean} ws @param {boolean} dr */
-function pickPerplexity(ws, dr) {
-  if (dr) return perplexityResearch();
-  if (ws) return perplexitySearch();
-  return perplexityDialogue();
+function pickOllama(ws, dr) {
+  if (dr) return ollamaResearch();
+  if (ws) return ollamaSearch();
+  return ollamaDialogue();
+}
+
+function kimiDialogue()  { return getUserAiModel("ollama-kimi", "dialogue"); }
+function kimiSearch()    { return getUserAiModel("ollama-kimi", "search"); }
+function kimiResearch()  { return getUserAiModel("ollama-kimi", "research"); }
+/** @param {boolean} ws @param {boolean} dr */
+function pickKimi(ws, dr) {
+  if (dr) return kimiResearch();
+  if (ws) return kimiSearch();
+  return kimiDialogue();
+}
+
+function dsDialogue()    { return getUserAiModel("ollama-ds", "dialogue"); }
+function dsSearch()      { return getUserAiModel("ollama-ds", "search"); }
+function dsResearch()    { return getUserAiModel("ollama-ds", "research"); }
+/** @param {boolean} ws @param {boolean} dr */
+function pickDs(ws, dr) {
+  if (dr) return dsResearch();
+  if (ws) return dsSearch();
+  return dsDialogue();
 }
 
 /** Returns the dialogue-tier model ID for a provider. */
@@ -127,7 +149,9 @@ export function dialogueModel(providerId) {
     case "openai": return openAiDialogue();
     case "anthropic": return anthropicDialogue();
     case "gemini-flash": return geminiDialogue();
-    case "perplexity": return perplexityDialogue();
+    case "ollama":      return ollamaDialogue();
+    case "ollama-kimi": return kimiDialogue();
+    case "ollama-ds":   return dsDialogue();
     default: return "";
   }
 }
@@ -138,7 +162,9 @@ function pickModel(providerId, webSearch, deepResearch) {
     case "openai": return pickOpenAi(webSearch, deepResearch);
     case "anthropic": return pickAnthropic(webSearch, deepResearch);
     case "gemini-flash": return pickGemini(webSearch, deepResearch);
-    case "perplexity": return pickPerplexity(webSearch, deepResearch);
+    case "ollama":      return pickOllama(webSearch, deepResearch);
+    case "ollama-kimi": return pickKimi(webSearch, deepResearch);
+    case "ollama-ds":   return pickDs(webSearch, deepResearch);
     default: throw new Error("Unknown provider");
   }
 }
@@ -336,8 +362,8 @@ export async function completeChatMessage(providerId, text, apiKey, options = {}
     tools: (providerId === "anthropic" && useWebGrounding)
       ? [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]
       : undefined,
-    googleSearch: (providerId === "gemini-flash" || providerId === "perplexity") ? useWebGrounding : false,
-    disableSearch: providerId === "perplexity" && lockdown,
+    googleSearch: providerId === "gemini-flash" ? useWebGrounding : false,
+    disableSearch: false,
     geminiParts: providerId === "gemini-flash" ? geminiParts : undefined,
     withCitations: true,
     requestKind: null,
@@ -449,8 +475,8 @@ export async function completeChatMessageStreaming(providerId, text, apiKey, onD
     tools: (providerId === "anthropic" && useWebGrounding)
       ? [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]
       : undefined,
-    googleSearch: (providerId === "gemini-flash" || providerId === "perplexity") ? useWebGrounding : false,
-    disableSearch: providerId === "perplexity" && lockdown,
+    googleSearch: providerId === "gemini-flash" ? useWebGrounding : false,
+    disableSearch: false,
     geminiParts: providerId === "gemini-flash" ? geminiParts : undefined,
     onDelta,
     requestKind: null,
@@ -477,9 +503,15 @@ export function apiModelHint(providerId, extras = {}) {
     case "gemini-flash":
       if (dr) return `${geminiResearch()} · deep research`;
       return ws ? `${geminiSearch()} · Google search` : geminiDialogue();
-    case "perplexity":
-      if (dr) return `${perplexityResearch()}${suffixDr}`;
-      return ws ? perplexitySearch() : perplexityDialogue();
+    case "ollama":
+      if (dr) return `${ollamaResearch()}${suffixDr}`;
+      return ws ? ollamaSearch() : ollamaDialogue();
+    case "ollama-kimi":
+      if (dr) return `${kimiResearch()}${suffixDr}`;
+      return ws ? kimiSearch() : kimiDialogue();
+    case "ollama-ds":
+      if (dr) return `${dsResearch()}${suffixDr}`;
+      return ws ? dsSearch() : dsDialogue();
     default:
       return "";
   }
@@ -861,7 +893,9 @@ export async function completeImageGeneration(providerId, prompt, apiKey, option
       }
     }
     case "anthropic":
-    case "perplexity":
+    case "ollama":
+    case "ollama-kimi":
+    case "ollama-ds":
       throw new Error(
         "This model does not generate images. Choose ChatGPT or Gemini (key in .env).",
       );

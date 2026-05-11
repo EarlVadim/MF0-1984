@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import https from "node:https";
+import http  from "node:http";  // added for Ollama local proxy
 import { URL } from "node:url";
 
 const router = Router();
@@ -29,10 +30,26 @@ const PROVIDERS = {
     envKey: () => String(process.env.ANTHROPIC_API_KEY ?? "").trim(),
     injectAuth: (h, k) => { h["x-api-key"] = k; },
   },
-  perplexity: {
-    host: "api.perplexity.ai",
-    envKey: () => String(process.env.PERPLEXITY_API_KEY ?? "").trim(),
-    injectAuth: (h, k) => { h["authorization"] = `Bearer ${k}`; },
+  ollama: {
+    host:      "127.0.0.1",
+    port:      11434,
+    protocol:  "http",
+    envKey:    () => "ollama",
+    injectAuth: null,
+  },
+  "ollama-kimi": {   // kimi-k2.6:cloud via local Ollama
+    host:      "127.0.0.1",
+    port:      11434,
+    protocol:  "http",
+    envKey:    () => "ollama",
+    injectAuth: null,
+  },
+  "ollama-ds": {     // deepseek-v4-pro:cloud via local Ollama
+    host:      "127.0.0.1",
+    port:      11434,
+    protocol:  "http",
+    envKey:    () => "ollama",
+    injectAuth: null,
   },
   gemini: {
     host: "generativelanguage.googleapis.com",
@@ -83,8 +100,10 @@ function makeProxyHandler(providerName) {
       headers["content-type"] = "application/json";
     }
 
-    const proxyReq = https.request({
+    const lib = cfg.protocol === "http" ? http : https;
+    const proxyReq = lib.request({
       hostname: cfg.host,
+      port:     cfg.port ?? (cfg.protocol === "http" ? 80 : 443),
       path: upstreamPath,
       method: req.method,
       headers,

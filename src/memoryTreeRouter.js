@@ -14,7 +14,9 @@ const ROUTER_MODEL = {
   openai: "gpt-4o-mini",
   anthropic: "claude-3-5-haiku-20241022",
   "gemini-flash": "gemini-2.0-flash",
-  perplexity: "sonar",
+  ollama:        "gemma4:31b-cloud",
+  "ollama-kimi": "kimi-k2.6:cloud",
+  "ollama-ds":   "deepseek-v4-pro:cloud",
 };
 
 /** LLM rerank: same contract shape as Cyprus Discovery `MEMORY_ROUTE_RERANK_INSTRUCTION`. */
@@ -289,7 +291,7 @@ export function serializeMemoryGraphForRouter(graph, userQuery, opts = {}) {
 function pickRouterKey(allKeys, analysisPriority, activeProviderId, activeApiKey) {
   const preferred = Array.isArray(analysisPriority)
     ? analysisPriority
-    : ["openai", "anthropic", "gemini-flash", "perplexity"];
+    : ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds"];
   for (const pid of preferred) {
     const key = String(allKeys?.[pid] ?? "").trim();
     if (key) return { providerId: pid, key };
@@ -321,7 +323,7 @@ async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutToke
     system: systemPrompt,
     temperature: 0.12,
     maxTokens: maxOutTokens,
-    disableSearch: providerId === "perplexity",
+    disableSearch: providerId === "ollama" || providerId === "ollama-kimi" || providerId === "ollama-ds",
     requestKind: null,
     promptBasis: `${systemPrompt}\n\n${ub}`,
   });

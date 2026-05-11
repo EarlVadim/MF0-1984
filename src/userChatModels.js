@@ -6,7 +6,7 @@
 const LEGACY_CHAT_PREFIX = "mf0.settings.chatModel.";
 const STORAGE_PREFIX = "mf0.settings.aiModel.";
 
-/** @typedef {"openai" | "anthropic" | "gemini" | "perplexity"} AiSettingsProvider */
+/** @typedef {"openai" | "anthropic" | "gemini" | "ollama" | "ollama-kimi" | "ollama-ds"} AiSettingsProvider */
 /** @typedef {"dialogue" | "images" | "search" | "research"} AiModelRole */
 
 /** Built-in defaults per provider × role. */
@@ -28,10 +28,20 @@ export const DEFAULT_AI_MODEL_IDS = {
     search: "gemini-3.1-pro-preview",
     research: "gemini-3.1-pro-preview",
   },
-  perplexity: {
-    dialogue: "sonar",
-    search: "sonar-pro",
-    research: "sonar-reasoning-pro",
+  ollama: {
+    dialogue: "gemma4:31b-cloud",
+    search:   "gemma4:31b-cloud",
+    research: "gemma4:31b-cloud",
+  },
+  "ollama-kimi": {
+    dialogue: "kimi-k2.6:cloud",
+    search:   "kimi-k2.6:cloud",
+    research: "kimi-k2.6:cloud",
+  },
+  "ollama-ds": {
+    dialogue: "deepseek-v4-pro:cloud",
+    search:   "deepseek-v4-pro:cloud",
+    research: "deepseek-v4-pro:cloud",
   },
 };
 
@@ -69,10 +79,20 @@ export const FALLBACK_AI_MODEL_LISTS = {
     search: ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
     research: ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"],
   },
-  perplexity: {
-    dialogue: ["sonar", "sonar-pro"],
-    search: ["sonar", "sonar-pro"],
-    research: ["sonar-reasoning", "sonar-reasoning-pro", "sonar-deep-research"],
+  ollama: {
+    dialogue: ["gemma4:31b-cloud", "gemma4:26b", "llama3.2"],
+    search:   ["gemma4:31b-cloud"],
+    research: ["gemma4:31b-cloud"],
+  },
+  "ollama-kimi": {
+    dialogue: ["kimi-k2.6:cloud"],
+    search:   ["kimi-k2.6:cloud"],
+    research: ["kimi-k2.6:cloud"],
+  },
+  "ollama-ds": {
+    dialogue: ["deepseek-v4-pro:cloud"],
+    search:   ["deepseek-v4-pro:cloud"],
+    research: ["deepseek-v4-pro:cloud"],
   },
 };
 

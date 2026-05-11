@@ -219,11 +219,19 @@
               <h3 class="settings-modal-section-title" id="settings-heading-ai-priority">AI priority</h3>
               <div id="settings-ai-priority-badges" class="model-badges settings-ai-priority-badges">
                 <button type="button" class="badge" data-provider="openai">ChatGPT</button>
-                <button type="button" class="badge" data-provider="perplexity">Perplexity</button>
+                <button type="button" class="badge" data-provider="ollama">Ollama</button>
+                <button type="button" class="badge" data-provider="ollama-kimi">Kimi</button>
+                <button type="button" class="badge" data-provider="ollama-ds">DeepSeek</button>
                 <button type="button" class="badge" data-provider="gemini-flash">Gemini</button>
                 <button type="button" class="badge" data-provider="anthropic">Claude</button>
               </div>
             </section>
+            <section class="settings-modal-section" aria-labelledby="settings-heading-ai-opinion-participants">
+              <h3 class="settings-modal-section-title" id="settings-heading-ai-opinion-participants">AI opinion — participants</h3>
+              <p class="settings-modal-hint">Select which models join the AI opinion round-robin. At least two must be enabled.</p>
+              <div id="settings-ai-opinion-checkboxes" class="settings-ai-opinion-checkboxes"></div>
+            </section>
+
             <section class="settings-modal-section" aria-labelledby="settings-heading-ai-settings">
               <div class="settings-ai-section-head">
                 <h3 class="settings-modal-section-title settings-ai-section-title" id="settings-heading-ai-settings">
@@ -1128,7 +1136,9 @@
               <div class="chat-footer">
               <div class="model-badges" id="model-badges" aria-label="Model providers">
                 <button type="button" class="badge" data-provider="openai">ChatGPT</button>
-                <button type="button" class="badge" data-provider="perplexity">Perplexity</button>
+                <button type="button" class="badge" data-provider="ollama">Ollama</button>
+                <button type="button" class="badge" data-provider="ollama-kimi">Kimi</button>
+                <button type="button" class="badge" data-provider="ollama-ds">DeepSeek</button>
                 <button type="button" class="badge" data-provider="gemini-flash">Gemini</button>
                 <button type="button" class="badge" data-provider="anthropic">Claude</button>
                 <button

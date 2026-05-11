@@ -1,15 +1,17 @@
 const STORAGE_KEY = "mf0.settings.chatAnalysisPriority";
 
-/** @typedef {"openai" | "anthropic" | "gemini-flash" | "perplexity"} ChatAnalysisProviderId */
+/** @typedef {"openai" | "anthropic" | "gemini-flash" | "ollama" | "ollama-kimi" | "ollama-ds"} ChatAnalysisProviderId */
 
 /** @type {ChatAnalysisProviderId[]} */
-const DEFAULT_CHAT_ANALYSIS_PRIORITY = ["openai", "anthropic", "gemini-flash", "perplexity"];
+const DEFAULT_CHAT_ANALYSIS_PRIORITY = ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds"];
 
 const PROVIDER_TITLE = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   "gemini-flash": "Gemini",
-  perplexity: "Perplexity",
+  ollama: "Ollama",
+  "ollama-kimi": "Kimi",
+  "ollama-ds": "DeepSeek",
 };
 
 /**
