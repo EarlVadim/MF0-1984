@@ -1,17 +1,18 @@
 const STORAGE_KEY = "mf0.settings.chatAnalysisPriority";
 
-/** @typedef {"openai" | "anthropic" | "gemini-flash" | "ollama" | "ollama-kimi" | "ollama-ds"} ChatAnalysisProviderId */
+/** @typedef {"openai" | "anthropic" | "gemini-flash" | "ollama" | "ollama-kimi" | "ollama-ds" | "openrouter"} ChatAnalysisProviderId */
 
 /** @type {ChatAnalysisProviderId[]} */
-const DEFAULT_CHAT_ANALYSIS_PRIORITY = ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds"];
+const DEFAULT_CHAT_ANALYSIS_PRIORITY = ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds", "openrouter"];
 
 const PROVIDER_TITLE = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   "gemini-flash": "Gemini",
-  ollama: "Ollama",
+  ollama: "Gemma4",
   "ollama-kimi": "Kimi",
   "ollama-ds": "DeepSeek",
+  openrouter: "OpenRouter",
 };
 
 /**

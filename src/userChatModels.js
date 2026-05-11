@@ -6,7 +6,7 @@
 const LEGACY_CHAT_PREFIX = "mf0.settings.chatModel.";
 const STORAGE_PREFIX = "mf0.settings.aiModel.";
 
-/** @typedef {"openai" | "anthropic" | "gemini" | "ollama" | "ollama-kimi" | "ollama-ds"} AiSettingsProvider */
+/** @typedef {"openai" | "anthropic" | "gemini" | "ollama" | "ollama-kimi" | "ollama-ds" | "openrouter"} AiSettingsProvider */
 /** @typedef {"dialogue" | "images" | "search" | "research"} AiModelRole */
 
 /** Built-in defaults per provider × role. */
@@ -42,6 +42,11 @@ export const DEFAULT_AI_MODEL_IDS = {
     dialogue: "deepseek-v4-pro:cloud",
     search:   "deepseek-v4-pro:cloud",
     research: "deepseek-v4-pro:cloud",
+  },
+  openrouter: {
+    dialogue: "meta-llama/llama-3.3-70b-instruct:free",
+    search:   "meta-llama/llama-3.3-70b-instruct:free",
+    research: "deepseek/deepseek-r1:free",
   },
 };
 
@@ -93,6 +98,11 @@ export const FALLBACK_AI_MODEL_LISTS = {
     dialogue: ["deepseek-v4-pro:cloud"],
     search:   ["deepseek-v4-pro:cloud"],
     research: ["deepseek-v4-pro:cloud"],
+  },
+  openrouter: {
+    dialogue: ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-r1:free"],
+    search:   ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free"],
+    research: ["deepseek/deepseek-r1:free", "deepseek/deepseek-r1-0528:free"],
   },
 };
 

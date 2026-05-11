@@ -63,7 +63,7 @@ export function recordAuxLlmUsageRow(
   return true;
 }
 
-export const ANALYTICS_PROVIDER_IDS = ["openai", "ollama", "ollama-kimi", "ollama-ds", "gemini-flash", "anthropic"];
+export const ANALYTICS_PROVIDER_IDS = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini-flash", "anthropic"];
 
 /**
  * Map any client/provider slot id into one of ANALYTICS_PROVIDER_IDS so aux rows are never dropped.
@@ -80,6 +80,7 @@ function normalizeAuxAnalyticsProviderId(pidRaw) {
   if (p.startsWith("claude")) return "anthropic";
   if (p === "ollama-kimi" || p.startsWith("kimi")) return "ollama-kimi";
   if (p === "ollama-ds" || p.startsWith("deepseek")) return "ollama-ds";
+  if (p === "openrouter" || p.includes("openrouter")) return "openrouter";
   if (p.startsWith("ollama") || p.includes("llama") || p.includes("mistral") || p.includes("qwen") || p.includes("phi")) return "ollama";
   if (
     p.startsWith("gpt") ||
@@ -105,9 +106,10 @@ const ANALYTICS_USD_PER_MILLION = {
   openai: { input: 2.5, output: 15.0 },
   anthropic: { input: 3.0, output: 15.0 },
   "gemini-flash": { input: 0.5, output: 3.0 },
-  ollama:      { input: 0, output: 0 },
-  "ollama-kimi": { input: 0, output: 0 },
-  "ollama-ds":   { input: 0, output: 0 },
+  ollama:      { input: 0.5, output: 0.5 },
+  "ollama-kimi": { input: 0.5, output: 0.5 },
+  "ollama-ds":   { input: 0.5, output: 0.5 },
+  openrouter:    { input: 0.5, output: 0.5 },   // per-model pricing — tracked as zero
 };
 
 /**

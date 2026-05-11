@@ -10,11 +10,12 @@ export const ANALYTICS_USD_PER_1M = {
   /** Claude Sonnet–class mid tier */
   anthropic: { input: 3, output: 15, tier: "Claude Sonnet class (illustrative)" },
   /** Gemini Flash list pricing */
-  "gemini-flash": { input: 0.5, output: 3, tier: "Gemini Flash (illustrative)" },
+  "gemini-flash": { input: 0, output: 0, tier: "Gemini Flash (AI Studio)" },
   /** Ollama — local/cloud model, no API cost */
-  ollama:        { input: 0, output: 0, tier: "Ollama (free)" },
-  "ollama-kimi": { input: 0, output: 0, tier: "Kimi via Ollama (free)" },
-  "ollama-ds":   { input: 0, output: 0, tier: "DeepSeek via Ollama (free)" },
+  ollama:        { input: 0.1, output: 0.1, tier: "Gemma4 via Ollama" },
+  "ollama-kimi": { input: 0.1, output: 0.1, tier: "Kimi via Ollama" },
+  "ollama-ds":   { input: 0.1, output: 0.1, tier: "DeepSeek via Ollama" },
+  openrouter:    { input: 0.14, output: 0.28, tier: "OpenRouter (per-model)" },
 };
 
 /**

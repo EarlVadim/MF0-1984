@@ -17,6 +17,7 @@ const ROUTER_MODEL = {
   ollama:        "gemma4:31b-cloud",
   "ollama-kimi": "kimi-k2.6:cloud",
   "ollama-ds":   "deepseek-v4-pro:cloud",
+  openrouter:    "meta-llama/llama-3.3-70b-instruct:free",
 };
 
 /** LLM rerank: same contract shape as Cyprus Discovery `MEMORY_ROUTE_RERANK_INSTRUCTION`. */
@@ -291,7 +292,7 @@ export function serializeMemoryGraphForRouter(graph, userQuery, opts = {}) {
 function pickRouterKey(allKeys, analysisPriority, activeProviderId, activeApiKey) {
   const preferred = Array.isArray(analysisPriority)
     ? analysisPriority
-    : ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds"];
+    : ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds", "openrouter"];
   for (const pid of preferred) {
     const key = String(allKeys?.[pid] ?? "").trim();
     if (key) return { providerId: pid, key };
@@ -323,7 +324,7 @@ async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutToke
     system: systemPrompt,
     temperature: 0.12,
     maxTokens: maxOutTokens,
-    disableSearch: providerId === "ollama" || providerId === "ollama-kimi" || providerId === "ollama-ds",
+    disableSearch: ["ollama", "ollama-kimi", "ollama-ds", "openrouter"].includes(providerId),
     requestKind: null,
     promptBasis: `${systemPrompt}\n\n${ub}`,
   });

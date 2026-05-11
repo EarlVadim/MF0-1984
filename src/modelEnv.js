@@ -10,6 +10,7 @@ let _keys = {
   ollama:         "server-proxy",
   "ollama-kimi":  "server-proxy",
   "ollama-ds":    "server-proxy",
+  openrouter:     "",
   "gemini-flash": "",
   anthropic:      "",
 };
@@ -34,6 +35,7 @@ export async function initModelEnv() {
       ollama:          "server-proxy",
       "ollama-kimi":   "server-proxy",
       "ollama-ds":     "server-proxy",
+      openrouter:      cfg.openrouter       ? "server-proxy" : "",
       "gemini-flash":  cfg["gemini-flash"]  ? "server-proxy" : "",
       anthropic:       cfg.anthropic        ? "server-proxy" : "",
     };
@@ -45,6 +47,7 @@ export async function initModelEnv() {
       ollama:         "server-proxy",
       "ollama-kimi":  "server-proxy",
       "ollama-ds":    "server-proxy",
+      openrouter:     "server-proxy",
       "gemini-flash": "server-proxy",
       anthropic:      "server-proxy",
     };

@@ -1,0 +1,13 @@
+# OpenRouter model list for MF0-1984
+# One model ID per line. Lines starting with # and blank lines are ignored.
+# Find model IDs at: https://openrouter.ai/models
+#
+# ── Free tier ────────────────────────────────────────────────────────────────
+deepseek/deepseek-v3.2
+deepseek/deepseek-v4-flash
+deepseek/deepseek-v4-pro
+#
+# ── Paid ─────────────────────────────────────────────────────────────────────
+# anthropic/claude-opus-4-5
+# openai/gpt-4o
+# google/gemini-2.5-pro

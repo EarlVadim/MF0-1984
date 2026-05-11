@@ -19,9 +19,10 @@ import { getUserAiModel } from "./userChatModels.js";
 
 export const PROVIDER_DISPLAY = {
   openai:        "ChatGPT",
-  ollama:        "Ollama",
+  ollama:        "Gemma4",
   "ollama-kimi": "Kimi",
   "ollama-ds":   "DeepSeek",
+  openrouter:    "OpenRouter",
   "gemini-flash": "Gemini",
   anthropic:     "Claude",
 };
@@ -143,6 +144,16 @@ function pickDs(ws, dr) {
   return dsDialogue();
 }
 
+function orDialogue()   { return getUserAiModel("openrouter", "dialogue"); }
+function orSearch()     { return getUserAiModel("openrouter", "search"); }
+function orResearch()   { return getUserAiModel("openrouter", "research"); }
+/** @param {boolean} ws @param {boolean} dr */
+function pickOr(ws, dr) {
+  if (dr) return orResearch();
+  if (ws) return orSearch();
+  return orDialogue();
+}
+
 /** Returns the dialogue-tier model ID for a provider. */
 export function dialogueModel(providerId) {
   switch (providerId) {
@@ -152,6 +163,7 @@ export function dialogueModel(providerId) {
     case "ollama":      return ollamaDialogue();
     case "ollama-kimi": return kimiDialogue();
     case "ollama-ds":   return dsDialogue();
+    case "openrouter":  return orDialogue();
     default: return "";
   }
 }
@@ -165,6 +177,7 @@ function pickModel(providerId, webSearch, deepResearch) {
     case "ollama":      return pickOllama(webSearch, deepResearch);
     case "ollama-kimi": return pickKimi(webSearch, deepResearch);
     case "ollama-ds":   return pickDs(webSearch, deepResearch);
+    case "openrouter":  return pickOr(webSearch, deepResearch);
     default: throw new Error("Unknown provider");
   }
 }
@@ -512,6 +525,9 @@ export function apiModelHint(providerId, extras = {}) {
     case "ollama-ds":
       if (dr) return `${dsResearch()}${suffixDr}`;
       return ws ? dsSearch() : dsDialogue();
+    case "openrouter":
+      if (dr) return `${orResearch()}${suffixDr}`;
+      return ws ? orSearch() : orDialogue();
     default:
       return "";
   }
@@ -896,6 +912,7 @@ export async function completeImageGeneration(providerId, prompt, apiKey, option
     case "ollama":
     case "ollama-kimi":
     case "ollama-ds":
+    case "openrouter":
       throw new Error(
         "This model does not generate images. Choose ChatGPT or Gemini (key in .env).",
       );

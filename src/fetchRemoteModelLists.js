@@ -250,3 +250,22 @@ export async function fetchOllamaModelIds() {
     return [];
   }
 }
+
+// ─── OpenRouter ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetch OpenRouter model IDs from the server-side text file.
+ * The file lives at <project-root>/openrouter-models.txt — edit it manually
+ * to add or remove models. Lines starting with # are comments.
+ * @returns {Promise<string[]>}
+ */
+export async function fetchOpenRouterModelIds() {
+  try {
+    const res = await fetch("/api/settings/openrouter-models");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.models) ? data.models : [];
+  } catch {
+    return [];
+  }
+}

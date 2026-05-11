@@ -299,6 +299,31 @@ export async function callLlm(opts) {
       break;
     }
 
+    case "openrouter": {
+      // OpenRouter uses the same OpenAI-compatible format.
+      // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
+      const systemMsg = system ? [{ role: "system", content: system }] : [];
+      const allMsgs = mergeAdjacentRoles([
+        ...systemMsg,
+        ...messages.filter((m) => m.role !== "system"),
+      ]);
+      const body = { model, messages: allMsgs };
+      if (temperature != null) body.temperature = temperature;
+      if (maxTokens) body.max_tokens = maxTokens;
+      const res = await fetch("/api/llm/openrouter/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify(body),
+        signal: abortSignal || undefined,
+      });
+      if (!res.ok) throw new Error(await readErrorBody(res));
+      const data = await res.json();
+      text = openAiContentToString(data.choices?.[0]?.message?.content);
+      if (!text.trim()) throw new Error("Empty API response");
+      rawUsage = usageFromOpenAiStyle(data.usage);
+      break;
+    }
+
     case "anthropic": {
       const anthMsgs = mergeAdjacentRoles(
         messages.filter((m) => m.role === "user" || m.role === "assistant"),
@@ -464,6 +489,29 @@ export async function callLlmStream(opts) {
       break;
     }
 
+    case "openrouter": {
+      // OpenRouter streaming — OpenAI-compatible SSE.
+      const systemMsg = system ? [{ role: "system", content: system }] : [];
+      const allMsgs = mergeAdjacentRoles([
+        ...systemMsg,
+        ...messages.filter((m) => m.role !== "system"),
+      ]);
+      const res = await fetch("/api/llm/openrouter/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({ model, messages: allMsgs, stream: true }),
+        signal: abortSignal || undefined,
+      });
+      const orStream = await streamOpenAICompatJson(res, onDelta);
+      text = orStream.text;
+      rawUsage = orStream.usage ?? null;
+      break;
+    }
+
     case "ollama":
     case "ollama-kimi":
     case "ollama-ds": {
@@ -489,6 +537,31 @@ export async function callLlmStream(opts) {
       const oStream = await streamOpenAICompatJson(res, onDelta);
       text = oStream.text;
       rawUsage = oStream.usage ?? null;
+      break;
+    }
+
+    case "openrouter": {
+      // OpenRouter uses the same OpenAI-compatible format.
+      // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
+      const systemMsg = system ? [{ role: "system", content: system }] : [];
+      const allMsgs = mergeAdjacentRoles([
+        ...systemMsg,
+        ...messages.filter((m) => m.role !== "system"),
+      ]);
+      const body = { model, messages: allMsgs };
+      if (temperature != null) body.temperature = temperature;
+      if (maxTokens) body.max_tokens = maxTokens;
+      const res = await fetch("/api/llm/openrouter/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify(body),
+        signal: abortSignal || undefined,
+      });
+      if (!res.ok) throw new Error(await readErrorBody(res));
+      const data = await res.json();
+      text = openAiContentToString(data.choices?.[0]?.message?.content);
+      if (!text.trim()) throw new Error("Empty API response");
+      rawUsage = usageFromOpenAiStyle(data.usage);
       break;
     }
 

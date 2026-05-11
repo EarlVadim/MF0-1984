@@ -13,7 +13,8 @@ import * as fetchLists from "./fetchRemoteModelLists.js";
 
 const AI_SETTINGS_PROVIDERS = [
   { provider: "openai", envKey: "openai", title: "ChatGPT", images: true },
-  { provider: "ollama", envKey: "ollama", title: "Ollama (local)", images: false },
+  { provider: "ollama",      envKey: "ollama",      title: "Gemma4", images: false },
+  { provider: "openrouter", envKey: "openrouter", title: "OpenRouter",    images: false },
   { provider: "gemini", envKey: "gemini-flash", title: "Gemini", images: true },
   { provider: "anthropic", envKey: "anthropic", title: "Claude", images: false },
 ];
@@ -93,8 +94,10 @@ async function fetchIdsForRole(provider, role, apiKey) {
       if (role === "search") return fetchLists.fetchOpenAiSearchModelIds(apiKey);
       return fetchLists.fetchOpenAiResearchModelIds(apiKey);
     case "ollama":
-      // Fetch available models directly from local Ollama API (no key needed)
       return fetchLists.fetchOllamaModelIds().catch(() => []);
+    case "openrouter":
+      // Read from openrouter-models.txt on the server — no API call needed
+      return fetchLists.fetchOpenRouterModelIds().catch(() => []);
     case "gemini":
       if (role === "images") return fetchLists.fetchGeminiImageModelIds(apiKey);
       return fetchLists.fetchGeminiGenerateContentModelIds(apiKey);

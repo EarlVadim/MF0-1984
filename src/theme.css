@@ -1836,14 +1836,23 @@ button.btn {
 .analytics-bar-seg--openai {
   background: #eab308;
 }
-.analytics-bar-seg--perplexity {
-  background: #15803d;
+.analytics-bar-seg--ollama {
+  background: #ff0000;
 }
 .analytics-bar-seg--gemini-flash {
   background: #38bdf8;
 }
 .analytics-bar-seg--anthropic {
   background: #d97757;
+}
+.analytics-bar-seg--ollama-kimi {
+  background: #e308ea;
+}
+.analytics-bar-seg--ollama-ds {
+  background: #2408ea;
+}
+.analytics-bar-seg--openrouter {
+  background: #00ff00;
 }
 
 .analytics-bar-day {

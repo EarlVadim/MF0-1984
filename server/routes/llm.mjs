@@ -51,6 +51,17 @@ const PROVIDERS = {
     envKey:    () => "ollama",
     injectAuth: null,
   },
+  openrouter: {
+    host:      "openrouter.ai",
+    protocol:  "https",
+    envKey:    () => String(process.env.OPENROUTER_API_KEY ?? "").trim(),
+    injectAuth: (h, k) => {
+      h["authorization"]  = `Bearer ${k}`;
+      // Required by OpenRouter — without these Vercel returns a security checkpoint page
+      h["http-referer"]   = String(process.env.OPENROUTER_REFERER ?? "http://localhost:1984");
+      h["x-title"]        = String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984");
+    },
+  },
   gemini: {
     host: "generativelanguage.googleapis.com",
     envKey: () => String(process.env.GEMINI_API_KEY ?? "").trim(),

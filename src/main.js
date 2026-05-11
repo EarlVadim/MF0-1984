@@ -1549,7 +1549,7 @@ if (versionEl) {
 }
 
 /** Default order for picking the active provider */
-const PROVIDER_ORDER = ["openai", "ollama", "ollama-kimi", "ollama-ds", "gemini-flash", "anthropic"];
+const PROVIDER_ORDER = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini-flash", "anthropic"];
 
 /** LocalStorage key — value is JSON array of provider IDs enabled for AI opinion. */
 const AI_OPINION_PARTICIPANTS_KEY = "mf0.settings.aiOpinionParticipants";
@@ -1599,6 +1599,7 @@ function setDefaultChatProvider(providerId) {
 /** Web search mode: Gemini → Ollama → Claude → ChatGPT */
 const WEB_SEARCH_PROVIDER_PRIORITY = [
   "gemini-flash",
+  "openrouter",
   "ollama",
   "ollama-kimi",
   "ollama-ds",
@@ -1675,7 +1676,7 @@ function hasAtLeastTwoModelKeys() {
 }
 
 const AI_TALKS_HANDOFF_RE =
-  /HANDOFF:\s*(openai|anthropic|gemini-flash|ollama|ollama-kimi|ollama-ds)\s*$/im;
+  /HANDOFF:\s*(openai|anthropic|gemini-flash|ollama|ollama-kimi|ollama-ds|openrouter)\s*$/im;
 const AI_TALKS_MAX_TURNS = 20;
 const AI_TALKS_ROUTING_GUIDE = [
   "- If the task needs creative ideation or non-obvious options -> HANDOFF: openai (ChatGPT).",
@@ -1683,6 +1684,7 @@ const AI_TALKS_ROUTING_GUIDE = [
   "- If the team needs dry trade-off weighing / objective structure -> HANDOFF: ollama (Ollama).",
   "- If the task benefits from Kimi reasoning -> HANDOFF: ollama-kimi (Kimi).",
   "- If the task benefits from DeepSeek coding/analysis -> HANDOFF: ollama-ds (DeepSeek).",
+  "- If you need access to a wide variety of open-source models -> HANDOFF: openrouter (OpenRouter).",
   "- If you need critical evaluation, risk review, or quality judgment -> HANDOFF: anthropic (Claude).",
   "- Do not rotate models mechanically. Choose based on what is needed next to solve the user's task.",
 ].join("\n");
@@ -1889,6 +1891,7 @@ const DEEP_RESEARCH_PROVIDER_PRIORITY = [
   "ollama",
   "ollama-kimi",
   "ollama-ds",
+  "openrouter",
   "openai",
   "gemini-flash",
   "anthropic",
@@ -1991,7 +1994,7 @@ function activateProviderForImageCreation() {
 }
 
 /** In Create image mode, providers without image API are unavailable */
-const IMAGE_MODE_DISABLED_PROVIDERS = new Set(["ollama", "ollama-kimi", "ollama-ds", "anthropic"]);
+const IMAGE_MODE_DISABLED_PROVIDERS = new Set(["ollama", "ollama-kimi", "ollama-ds", "openrouter", "anthropic"]);
 
 function refreshModelBadges() {
   const wrap = document.getElementById("model-badges");
