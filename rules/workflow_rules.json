@@ -1,3 +1,16 @@
 {
-  "items": []
+  "items": [
+    {
+      "text": "In AI opinion agent mode, incorporate the context of previous model responses to minimize duplication and develop collective argumentation.",
+      "addedAt": "2026-05-11T20:00:33.394Z"
+    },
+    {
+      "text": "Add a requirement to every model call to write in Russian only, excluding technical terms, code, and scripts.",
+      "addedAt": "2026-05-12T05:20:54.752Z"
+    },
+    {
+      "text": "При любом вопросе, касающемся кода агента MF0-1984 или файлов проекта приборной панели E-METER, ты обязан сначала выполнить <tool>list_files(\".\")</tool> или <tool>read_file(\"имя_файла\")</tool> из корня /root/ai-workspace. Если файл не найден по первому пути — проверить вложенные папки. /MF0-1984 — для агента, /E-METER — для приборки.",
+      "addedAt": "2026-05-12T14:32:03.715Z"
+    }
+  ]
 }

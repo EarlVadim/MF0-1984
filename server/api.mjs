@@ -18,9 +18,41 @@ import settingsRouter from "./routes/settings.mjs";
 import irPanelLockRouter from "./routes/irPanelLock.mjs";
 import memoryGraphRouter from "./routes/memoryGraph.mjs";
 import projectProfileRouter from "./routes/projectProfile.mjs";
-import analyticsRouter from "./routes/analytics.mjs";
+import analyticsRouter from "./routes/analytics.routes.mjs";
 import themesRouter from "./routes/themes.mjs";
-import llmRouter from "./routes/llm.mjs";
+import llmRouter     from "./routes/llm.mjs";
+import localfsRouter  from "./routes/localfs.mjs";
+
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { openRouterModelPriceMap } from "./db/openrouterPrices.mjs";
+
+// ── Load OpenRouter per-model prices at startup ───────────────────────────────
+(function loadOpenRouterPrices() {
+  try {
+    const __dir = dirname(fileURLToPath(import.meta.url));
+    const file = resolve(__dir, "../openrouter-models.txt");
+    if (!existsSync(file)) return;
+    const raw = readFileSync(file, "utf-8");
+    raw.split(/\r?\n/).forEach((line) => {
+      const l = line.trim();
+      if (!l || l.startsWith("#")) return;
+      const parts = l.split("|").map((p) => p.trim());
+      const id = parts[0];
+      if (!id) return;
+      const inputPer1M  = parseFloat(parts[1] ?? "0") || 0;
+      const outputPer1M = parseFloat(parts[2] ?? "0") || 0;
+      const shortName = parts.length > 3 && parts[3]
+        ? parts[3].trim()
+        : (id.split("/").pop() || id);
+      openRouterModelPriceMap.set(id, { inputPer1M, outputPer1M, shortName });
+    });
+    console.log(`[mf-lab-api] OpenRouter prices loaded: ${openRouterModelPriceMap.size} model(s)`);
+  } catch (e) {
+    console.warn("[mf-lab-api] Could not load openrouter-models.txt:", e?.message);
+  }
+})();
 
 const PORT = resolveApiPort(process.env.API_PORT);
 const app = express();
@@ -55,6 +87,7 @@ app.use("/api", projectProfileRouter);
 app.use("/api", analyticsRouter);
 app.use("/api", themesRouter);
 app.use("/api", llmRouter);
+app.use("/api", localfsRouter);
 
 app.use(notFound);
 app.use(errorHandler);

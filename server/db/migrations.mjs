@@ -319,6 +319,15 @@ function applyLlmTokenUsageMigration(database) {
   }
 }
 
+/** Adds responding_model_id column to conversation_turns for per-model token/cost tracking. */
+function applyRespondingModelIdColumn(database) {
+  const cols = database.prepare(`PRAGMA table_info(conversation_turns)`).all();
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has("responding_model_id")) {
+    database.exec(`ALTER TABLE conversation_turns ADD COLUMN responding_model_id TEXT`);
+  }
+}
+
 function applyAnalyticsUsageArchiveMigration(database) {
   const row = database
     .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='analytics_usage_archive'`)
@@ -360,6 +369,7 @@ export function createDatabase(filePath) {
   applyAnalyticsAuxDialogIdColumn(database);
   backfillVoiceReplyTtsConversationTurnIds(database);
   backfillAuxDialogIdFromConversationTurn(database);
+  applyRespondingModelIdColumn(database);
   return database;
 }
 

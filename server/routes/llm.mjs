@@ -37,19 +37,25 @@ const PROVIDERS = {
     envKey:    () => "ollama",
     injectAuth: null,
   },
-  "ollama-kimi": {   // kimi-k2.6:cloud via local Ollama
-    host:      "127.0.0.1",
-    port:      11434,
-    protocol:  "http",
-    envKey:    () => "ollama",
-    injectAuth: null,
+  "ollama-kimi": {   // OpenRouter slot 2 (independent model selection)
+    host:      "openrouter.ai",
+    protocol:  "https",
+    envKey:    () => String(process.env.OPENROUTER_API_KEY ?? "").trim(),
+    injectAuth: (h, k) => {
+      h["authorization"] = `Bearer ${k}`;
+      h["http-referer"]  = String(process.env.OPENROUTER_REFERER ?? "http://localhost:1984");
+      h["x-title"]       = String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984");
+    },
   },
-  "ollama-ds": {     // deepseek-v4-pro:cloud via local Ollama
-    host:      "127.0.0.1",
-    port:      11434,
-    protocol:  "http",
-    envKey:    () => "ollama",
-    injectAuth: null,
+  "ollama-ds": {     // OpenRouter slot 3 (independent model selection)
+    host:      "openrouter.ai",
+    protocol:  "https",
+    envKey:    () => String(process.env.OPENROUTER_API_KEY ?? "").trim(),
+    injectAuth: (h, k) => {
+      h["authorization"] = `Bearer ${k}`;
+      h["http-referer"]  = String(process.env.OPENROUTER_REFERER ?? "http://localhost:1984");
+      h["x-title"]       = String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984");
+    },
   },
   openrouter: {
     host:      "openrouter.ai",

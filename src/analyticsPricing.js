@@ -18,16 +18,68 @@ export const ANALYTICS_USD_PER_1M = {
   openrouter:    { input: 0.14, output: 0.28, tier: "OpenRouter (per-model)" },
 };
 
+// ── OpenRouter per-model pricing ──────────────────────────────────────────────
+
+/**
+ * Runtime price map loaded from openrouter-models.txt via the server API.
+ * Key: model_id (e.g. "deepseek/deepseek-v3.2")
+ * Value: { inputPer1M, outputPer1M }
+ * @type {Map<string, { inputPer1M: number, outputPer1M: number }>}
+ */
+let _openRouterPrices = new Map();
+
+/**
+ * Populate the per-model price map (call once at startup after fetching model entries).
+ * @param {Array<{ id: string, inputPer1M: number, outputPer1M: number }>} entries
+ */
+export function setOpenRouterModelPrices(entries) {
+  _openRouterPrices = new Map(
+    (Array.isArray(entries) ? entries : []).map((e) => [
+      String(e.id),
+      { inputPer1M: Number(e.inputPer1M) || 0, outputPer1M: Number(e.outputPer1M) || 0 },
+    ]),
+  );
+}
+
+/**
+ * Look up per-model price for an OpenRouter model. Returns null if unknown.
+ * @param {string} modelId
+ * @returns {{ inputPer1M: number, outputPer1M: number } | null}
+ */
+export function getOpenRouterModelPrice(modelId) {
+  const key = String(modelId ?? "").trim();
+  return key && _openRouterPrices.has(key) ? _openRouterPrices.get(key) : null;
+}
+
 /**
  * @param {string} providerId
  * @param {number} promptTokens
  * @param {number} completionTokens
+ * @param {string} [modelId]   — required for accurate OpenRouter per-model pricing
  */
-export function estimateProviderUsd(providerId, promptTokens, completionTokens) {
-  const r = ANALYTICS_USD_PER_1M[providerId];
-  if (!r) return null;
+export function estimateProviderUsd(providerId, promptTokens, completionTokens, modelId) {
   const p = Math.max(0, Number(promptTokens) || 0);
   const c = Math.max(0, Number(completionTokens) || 0);
+
+  // Precise per-model pricing for OpenRouter
+  if (providerId === "openrouter" && modelId) {
+    const price = getOpenRouterModelPrice(modelId);
+    if (price) {
+      const inputUsd  = (p / 1_000_000) * price.inputPer1M;
+      const outputUsd = (c / 1_000_000) * price.outputPer1M;
+      return {
+        inputUsd,
+        outputUsd,
+        totalUsd: inputUsd + outputUsd,
+        tier: `${modelId} (per-model)`,
+        inputPer1M: price.inputPer1M,
+        outputPer1M: price.outputPer1M,
+      };
+    }
+  }
+
+  const r = ANALYTICS_USD_PER_1M[providerId];
+  if (!r) return null;
   const inputUsd = (p / 1_000_000) * r.input;
   const outputUsd = (c / 1_000_000) * r.output;
   return {

@@ -7,6 +7,7 @@ import {
   completeChatMessage,
   completeChatMessageStreaming,
   completeImageGeneration,
+  dialogueModel,
   generateThemeDialogTitle,
   PROVIDER_DISPLAY,
 } from "./chatApi.js";
@@ -19,6 +20,15 @@ import {
 import { renderAssistantMarkdown } from "./markdown.js";
 import { highlightAssistantMarkdownCodeBlocks } from "./markdownCodeHighlight.js";
 import { getModelApiKeys, hasAnyModelApiKey, initModelEnv } from "./modelEnv.js";
+import {
+  getLocalFsConfig,
+  buildLocalFsSystemBlock,
+  processToolCalls,
+  buildToolResultMessage,
+} from "./localFsTools.js";
+import { fetchOpenRouterModelEntries } from "./fetchRemoteModelLists.js";
+import { setOpenRouterModelPrices } from "./analyticsPricing.js";
+import { getUserAiModel, setUserAiModel } from "./userChatModels.js";
 import {
   closeAllSettingsModelPickers,
   initSettingsModelSelects,
@@ -126,9 +136,9 @@ import {
 import { buildHelpModeSystemInstruction } from "./helpHandoffText.js";
 import { closeHelpChatPanel, openHelpChatPanelDom, isHelpChatOpen } from "./helpChatDom.js";
 
-const MAX_LOG_LINES = 400;
+const MAX_LOG_LINES = 500;
 /** Upper bound for estimated input tokens when building thread context (before the model reply). */
-const MF0_MAX_CONTEXT_INPUT_TOKENS = 12000;
+const MF0_MAX_CONTEXT_INPUT_TOKENS = 64000;
 
 /** Last N user exchanges (grouped turns) paint first when reopening a long thread; older rows prepend in idle time. */
 const DIALOG_REPLAY_TAIL_GROUP_COUNT = 12;
@@ -773,6 +783,7 @@ function initSettingsModal() {
   });
   initSettingsAiPriorityBadges();
   initAiOpinionParticipants();
+  initLocalFsButton();
   initChatAnalysisPrioritySettings({
     onSave() {
       appendActivityLog("Chat analysis priority saved");
@@ -1554,6 +1565,53 @@ const PROVIDER_ORDER = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrou
 /** LocalStorage key — value is JSON array of provider IDs enabled for AI opinion. */
 const AI_OPINION_PARTICIPANTS_KEY = "mf0.settings.aiOpinionParticipants";
 
+/** LocalStorage key for LocalFS mode toggle per dialog */
+const LOCALFS_MODE_STORAGE_KEY = "mf0.settings.localFsMode";
+
+/** Runtime: OpenRouter model entries {id, shortName, inputPer1M, outputPer1M} */
+let openRouterEntries = [];
+
+/** Runtime: is LocalFS tool mode active for the current dialog? */
+let localFsModeActive = false;
+/** Runtime: LocalFS config fetched from server */
+let localFsConfig = { enabled: false, root: null };
+
+/** Persist LocalFS mode preference */
+function setLocalFsMode(val) {
+  localFsModeActive = Boolean(val);
+  try { localStorage.setItem(LOCALFS_MODE_STORAGE_KEY, localFsModeActive ? "1" : "0"); } catch {}
+  // AI opinion and LocalFS are mutually exclusive — exit aiTalks if LocalFS is being enabled
+  if (localFsModeActive && composerAttachMode === "aiTalks") {
+    composerAttachMode = "";
+    saveDialogMode(activeDialogId ?? "", "");
+    syncAttachButtonExternal?.();
+    refreshModelBadges();
+    restoreDefaultChatProviderBadge();
+    syncComposerSendButtonState();
+    appendActivityLog("Exited AI opinion: LocalFS tools are not compatible with AI opinion mode.");
+  }
+  syncLocalFsButton();
+  syncAiOpinionBadge();
+}
+
+/** Read LocalFS mode preference */
+function getLocalFsModeStored() {
+  try { return localStorage.getItem(LOCALFS_MODE_STORAGE_KEY) === "1"; } catch { return false; }
+}
+
+/** Sync the LocalFS toggle button appearance */
+function syncLocalFsButton() {
+  const btn = document.getElementById("btn-localfs-mode");
+  if (!(btn instanceof HTMLButtonElement)) return;
+  const available = localFsConfig.enabled;
+  btn.disabled = !available;
+  btn.classList.toggle("active", localFsModeActive && available);
+  btn.setAttribute("aria-pressed", (localFsModeActive && available) ? "true" : "false");
+  btn.title = available
+    ? (localFsModeActive ? "LocalFS tools: ON — click to disable" : "LocalFS tools: OFF — click to enable")
+    : "LocalFS tools: not configured (set LOCALFS_ENABLED=true in .env)";
+}
+
 /** Read enabled AI opinion participants from localStorage. Falls back to all providers. */
 function getAiOpinionParticipants() {
   try {
@@ -1570,28 +1628,134 @@ function getAiOpinionParticipants() {
 function setAiOpinionParticipants(ids) {
   localStorage.setItem(AI_OPINION_PARTICIPANTS_KEY, JSON.stringify(ids));
 }
+/** Legacy global key — kept for migration of existing saved preference. */
 const DEFAULT_CHAT_PROVIDER_STORAGE_KEY = "mf0.settings.defaultChatProvider";
+/** Per-dialog provider key prefix: mf0.dialog.<dialogId>.provider */
+const DIALOG_PROVIDER_KEY_PREFIX = "mf0.dialog.";
 
 function providerHasKey(keys, id) {
   return Boolean(String(keys[id] ?? "").trim());
 }
 
-function getDefaultChatProvider() {
+/**
+ * Read the saved provider for a specific dialog.
+ * Falls back to the legacy global setting, then to "".
+ * @param {string} dialogId
+ */
+function getDialogProvider(dialogId) {
+  const did = String(dialogId ?? "").trim();
   try {
-    const raw = String(localStorage.getItem(DEFAULT_CHAT_PROVIDER_STORAGE_KEY) ?? "").trim();
-    return PROVIDER_ORDER.includes(raw) ? raw : "";
+    if (did) {
+      const perDialog = String(localStorage.getItem(DIALOG_PROVIDER_KEY_PREFIX + did) ?? "").trim();
+      if (PROVIDER_ORDER.includes(perDialog)) return perDialog;
+    }
+    // Legacy fallback — global default
+    const global = String(localStorage.getItem(DEFAULT_CHAT_PROVIDER_STORAGE_KEY) ?? "").trim();
+    return PROVIDER_ORDER.includes(global) ? global : "";
   } catch {
     return "";
   }
 }
 
-function setDefaultChatProvider(providerId) {
+/**
+ * Save the provider for a specific dialog.
+ * Also updates the legacy global key so new dialogs start with the last-used provider.
+ * @param {string} dialogId
+ * @param {string} providerId
+ */
+function setDialogProvider(dialogId, providerId) {
   const pid = String(providerId ?? "").trim();
   if (!PROVIDER_ORDER.includes(pid)) return;
   try {
+    const did = String(dialogId ?? "").trim();
+    if (did) localStorage.setItem(DIALOG_PROVIDER_KEY_PREFIX + did, pid);
+    // Keep global default in sync so new dialogs inherit the last choice
     localStorage.setItem(DEFAULT_CHAT_PROVIDER_STORAGE_KEY, pid);
+  } catch { /* ignore */ }
+}
+
+/** @deprecated Use getDialogProvider(dialogId) */
+function getDefaultChatProvider() {
+  return getDialogProvider(activeDialogId ?? "");
+}
+
+/** @deprecated Use setDialogProvider(dialogId, providerId) */
+function setDefaultChatProvider(providerId) {
+  setDialogProvider(activeDialogId ?? "", providerId);
+}
+
+/** Per-dialog chat mode key prefix: mf0.dialog.<dialogId>.mode */
+const DIALOG_MODE_KEY_PREFIX = "mf0.dialog.mode.";
+
+/** Per-dialog OR slot model key prefix: mf0.dialog.ormodel.<dialogId>.<slotId> */
+const DIALOG_OR_MODEL_KEY_PREFIX = "mf0.dialog.ormodel.";
+
+/** The three OpenRouter slot IDs */
+const OR_SLOT_IDS_ALL = ["openrouter", "ollama-kimi", "ollama-ds"];
+
+/**
+ * Save the selected model for an OR slot in a specific dialog.
+ * @param {string} dialogId
+ * @param {string} slotId   — "openrouter" | "ollama-kimi" | "ollama-ds"
+ * @param {string} modelId
+ */
+function saveDialogOrModel(dialogId, slotId, modelId) {
+  const did = String(dialogId ?? "").trim();
+  if (!did || !slotId || !modelId) return;
+  try {
+    localStorage.setItem(`${DIALOG_OR_MODEL_KEY_PREFIX}${did}.${slotId}`, modelId);
+  } catch { /* ignore */ }
+}
+
+/**
+ * Load the saved model for an OR slot in a specific dialog.
+ * Falls back to the global setting for that slot.
+ * @param {string} dialogId
+ * @param {string} slotId
+ * @returns {string}
+ */
+function loadDialogOrModel(dialogId, slotId) {
+  const did = String(dialogId ?? "").trim();
+  if (did) {
+    try {
+      const v = localStorage.getItem(`${DIALOG_OR_MODEL_KEY_PREFIX}${did}.${slotId}`);
+      const t = String(v ?? "").trim();
+      if (t) return t;
+    } catch { /* ignore */ }
+  }
+  // Fallback to global setting
+  return getUserAiModel(slotId, "dialogue");
+}
+
+/**
+ * Save the composer mode (e.g. "aiTalks", "web", "") for a specific dialog.
+ * Only persists modes that make sense to restore: aiTalks and "" (default).
+ * @param {string} dialogId
+ * @param {string} mode
+ */
+function saveDialogMode(dialogId, mode) {
+  const did = String(dialogId ?? "").trim();
+  if (!did) return;
+  // Only remember aiTalks and default — other modes (image, research) are transient
+  const persist = (mode === "aiTalks" || mode === "") ? mode : "";
+  try {
+    localStorage.setItem(DIALOG_MODE_KEY_PREFIX + did, persist);
+  } catch { /* ignore */ }
+}
+
+/**
+ * Read the saved composer mode for a specific dialog.
+ * @param {string} dialogId
+ * @returns {"aiTalks"|""}
+ */
+function loadDialogMode(dialogId) {
+  const did = String(dialogId ?? "").trim();
+  if (!did) return "";
+  try {
+    const raw = String(localStorage.getItem(DIALOG_MODE_KEY_PREFIX + did) ?? "").trim();
+    return raw === "aiTalks" ? "aiTalks" : "";
   } catch {
-    /* ignore */
+    return "";
   }
 }
 
@@ -1933,11 +2097,13 @@ function syncAiOpinionBadge() {
   const btn = document.getElementById("btn-ai-opinion");
   if (!(btn instanceof HTMLButtonElement)) return;
   const keysOk = hasAtLeastTwoModelKeys();
+  const lfsBlocks = localFsModeActive && localFsConfig.enabled;
   const blocked =
     composerAttachMode === "image" ||
     composerAttachMode === "research" ||
     composerAttachMode === "web" ||
-    composerAttachMode === "accessData";
+    composerAttachMode === "accessData" ||
+    lfsBlocks;
   const enabled = keysOk && !blocked;
   btn.disabled = !enabled;
   btn.setAttribute("aria-disabled", enabled ? "false" : "true");
@@ -1945,6 +2111,8 @@ function syncAiOpinionBadge() {
   btn.setAttribute("aria-pressed", composerAttachMode === "aiTalks" ? "true" : "false");
   if (!keysOk) {
     btn.title = "AI opinion requires at least 2 model keys in .env";
+  } else if (lfsBlocks) {
+    btn.title = "Turn off LocalFS tools to use AI opinion";
   } else if (blocked) {
     btn.title = "Turn off Create image, Deep research, Web search, or Access data to use AI opinion";
   } else {
@@ -2073,15 +2241,40 @@ function initProviderBadges() {
     if (!t || t.disabled || t.classList.contains("badge--no-key") || t.classList.contains("badge--mode-locked")) {
       return;
     }
+    const pid = t.getAttribute("data-provider");
+
+    // OpenRouter slots (openrouter, ollama-kimi, ollama-ds): show model picker
+    const OR_SLOTS = new Set(["openrouter", "ollama-kimi", "ollama-ds"]);
+    if (OR_SLOTS.has(pid) && openRouterEntries.length > 0) {
+      if (t.classList.contains("active")) {
+        showOpenRouterPicker(t, pid);
+        return;
+      }
+      // Activate + open picker
+      if (composerAttachMode === "aiTalks") {
+        composerAttachMode = "";
+        saveDialogMode(activeDialogId ?? "", "");
+        syncAttachButtonExternal?.();
+      }
+      for (const b of buttons) b.classList.remove("active");
+      t.classList.add("active");
+      if (pid) setDefaultChatProvider(pid);
+      refreshModelBadges();
+      syncComposerSendButtonState();
+      appendActivityLog(`Model: ${PROVIDER_DISPLAY[pid] ?? pid ?? "—"}`);
+      showOpenRouterPicker(t, pid);
+      return;
+    }
+
     if (composerAttachMode === "aiTalks") {
       composerAttachMode = "";
+      saveDialogMode(activeDialogId ?? "", "");
       syncAttachButtonExternal?.();
     }
     for (const b of buttons) {
       b.classList.remove("active");
     }
     t.classList.add("active");
-    const pid = t.getAttribute("data-provider");
     if (pid) setDefaultChatProvider(pid);
     refreshModelBadges();
     syncComposerSendButtonState();
@@ -3429,6 +3622,7 @@ function initAttachMenu() {
       const action = item.getAttribute("data-action");
       if (action === "reset") {
         composerAttachMode = "";
+        saveDialogMode(activeDialogId ?? "", "");
         syncAttachButton();
         refreshModelBadges();
         syncComposerSendButtonState();
@@ -3448,6 +3642,9 @@ function initAttachMenu() {
 
       const wasAiTalks = composerAttachMode === "aiTalks";
       composerAttachMode = action ?? "";
+      // Persist only aiTalks/"" — other modes (image, research) are transient
+      if (action === "aiTalks" || !action) saveDialogMode(activeDialogId ?? "", action ?? "");
+      else if (wasAiTalks) saveDialogMode(activeDialogId ?? "", "");
       syncAttachButton();
 
       if (
@@ -3533,6 +3730,131 @@ function initAttachMenu() {
   syncAttachButton();
 }
 
+/**
+ * Update the OpenRouter badge text to show the selected model's short name.
+ */
+function updateOpenRouterBadgeLabel() {
+  // Update all three OR slots: openrouter, ollama-kimi, ollama-ds
+  const slotDefaults = {
+    "openrouter": "OpenRouter",
+    "ollama-kimi": "OR Slot 2",
+    "ollama-ds":   "OR Slot 3",
+  };
+  for (const [slotId, fallback] of Object.entries(slotDefaults)) {
+    // Use per-dialog model if a dialog is open, otherwise global
+    const currentModelId = activeDialogId
+      ? loadDialogOrModel(activeDialogId, slotId)
+      : getUserAiModel(slotId, "dialogue");
+    const entry = openRouterEntries.find((e) => e.id === currentModelId);
+    const label = entry?.shortName || fallback;
+    for (const wrapId of ["model-badges", "settings-ai-priority-badges"]) {
+      const btn = document.getElementById(wrapId)
+        ?.querySelector?.(`[data-provider="${slotId}"]`);
+      if (!(btn instanceof HTMLElement)) continue;
+      const svgNodes = [...btn.childNodes].filter((n) => n.nodeName === "svg" || n.nodeName === "SVG");
+      btn.textContent = label;
+      for (const svg of svgNodes) btn.appendChild(svg);
+    }
+  }
+}
+
+/**
+ * Show model picker dropdown anchored below anchorBtn.
+ * @param {HTMLElement} anchorBtn
+ */
+function showOpenRouterPicker(anchorBtn, slotId = "openrouter") {
+  document.getElementById("openrouter-picker")?.remove();
+  if (!openRouterEntries.length) return;
+
+  // Show the model currently active for this dialog (or global fallback)
+  const currentModel = activeDialogId
+    ? loadDialogOrModel(activeDialogId, slotId)
+    : getUserAiModel(slotId, "dialogue");
+  const picker = document.createElement("div");
+  picker.id = "openrouter-picker";
+  picker.className = "openrouter-picker";
+  picker.setAttribute("role", "listbox");
+  picker.setAttribute("aria-label", "Select OpenRouter model");
+
+  for (const entry of openRouterEntries) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "openrouter-picker-item" + (entry.id === currentModel ? " selected" : "");
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", entry.id === currentModel ? "true" : "false");
+    item.dataset.modelId = entry.id;
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "openrouter-picker-name";
+    nameSpan.textContent = entry.shortName;
+
+    const idSpan = document.createElement("span");
+    idSpan.className = "openrouter-picker-id";
+    idSpan.textContent = entry.id;
+
+    item.append(nameSpan, idSpan);
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setUserAiModel(slotId, "dialogue", entry.id);
+      setUserAiModel(slotId, "search",   entry.id);
+      setUserAiModel(slotId, "research", entry.id);
+      // Also save per-dialog so this dialog restores the same model next time
+      if (activeDialogId) saveDialogOrModel(activeDialogId, slotId, entry.id);
+      updateOpenRouterBadgeLabel();
+      picker.remove();
+      appendActivityLog(`OpenRouter model: ${entry.shortName}`);
+    });
+    picker.appendChild(item);
+  }
+
+  document.body.appendChild(picker);
+  const rect = anchorBtn.getBoundingClientRect();
+  const vh   = window.innerHeight;
+
+  // Measure picker height before positioning
+  picker.style.visibility = "hidden";
+  picker.style.top = "-9999px";
+  requestAnimationFrame(() => {
+    const ph = picker.offsetHeight;
+    const pw = picker.offsetWidth;
+    const vw = window.innerWidth;
+    const spaceBelow = vh - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+
+    // Open upward if not enough room below AND more space above
+    if (spaceBelow < ph && spaceAbove > spaceBelow) {
+      picker.style.top = `${rect.top - ph - 4 + window.scrollY}px`;
+    } else {
+      picker.style.top = `${rect.bottom + 4 + window.scrollY}px`;
+    }
+
+    // Clamp to right edge
+    const left = rect.left + window.scrollX;
+    picker.style.left = `${Math.min(left, vw - pw - 8 + window.scrollX)}px`;
+    picker.style.visibility = "visible";
+  });
+
+  const closePicker = (ev) => {
+    if (!picker.contains(ev.target) && ev.target !== anchorBtn) {
+      picker.remove();
+      document.removeEventListener("pointerdown", closePicker, true);
+    }
+  };
+  setTimeout(() => document.addEventListener("pointerdown", closePicker, true), 10);
+}
+
+function initLocalFsButton() {
+  const btn = document.getElementById("btn-localfs-mode");
+  if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", () => {
+    if (!localFsConfig.enabled) return;
+    setLocalFsMode(!localFsModeActive);
+    appendActivityLog(localFsModeActive ? "LocalFS tools enabled" : "LocalFS tools disabled");
+  });
+  syncLocalFsButton();
+}
+
 function initAiOpinionButton() {
   const btn = document.getElementById("btn-ai-opinion");
   if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === "1") return;
@@ -3542,6 +3864,7 @@ function initAiOpinionButton() {
     const wrap = document.getElementById("model-badges");
     if (composerAttachMode === "aiTalks") {
       composerAttachMode = "";
+      saveDialogMode(activeDialogId ?? "", "");
       syncAttachButtonExternal?.();
       refreshModelBadges();
       restoreDefaultChatProviderBadge();
@@ -3555,6 +3878,7 @@ function initAiOpinionButton() {
       setDefaultChatProvider(cur);
     }
     composerAttachMode = "aiTalks";
+    saveDialogMode(activeDialogId ?? "", "aiTalks");
     syncAttachButtonExternal?.();
     refreshModelBadges();
     syncComposerSendButtonState();
@@ -4581,6 +4905,7 @@ async function retryAssistantReply(clickedAssistantWrap) {
         assistant_text: assistantOut || null,
         requested_provider_id: providerId,
         responding_provider_id: providerId,
+        responding_model_id: dialogueModel(providerId) || null,
         assistant_message_at: assistantMessageAt,
         assistant_error: hadAssistantError ? 1 : 0,
         ...llmUsageTurnDbFields(turnLlmUsage),
@@ -5670,6 +5995,48 @@ async function openDialogById(dialogId, themeId, scrollToTurnId) {
     setMessagesViewportLoading(false);
   }
   await renderThemesSidebar();
+
+  // Restore the chat mode and provider saved for this dialog.
+  // Wrapped in rAF so the badge DOM is in its final state.
+  requestAnimationFrame(() => {
+    const savedMode = loadDialogMode(did);
+
+    if (savedMode === "aiTalks") {
+      // Restore AI opinion mode
+      if (hasAtLeastTwoModelKeys()) {
+        composerAttachMode = "aiTalks";
+        syncAttachButtonExternal?.();
+        refreshModelBadges();
+        syncComposerSendButtonState();
+      }
+    } else {
+      // Make sure we exit aiTalks if this dialog was in default mode
+      if (composerAttachMode === "aiTalks") {
+        composerAttachMode = "";
+        syncAttachButtonExternal?.();
+        refreshModelBadges();
+        syncComposerSendButtonState();
+      }
+      // Restore saved provider for this dialog
+      const savedProvider = getDialogProvider(did);
+      if (savedProvider) {
+        setActiveProviderBadge(savedProvider);
+      }
+    }
+
+    // Restore OR slot models for this dialog (apply to global getUserAiModel
+    // so that orDialogue() / kimiDialogue() / dsDialogue() return correct values)
+    for (const slotId of OR_SLOT_IDS_ALL) {
+      const saved = loadDialogOrModel(did, slotId);
+      if (saved) {
+        setUserAiModel(slotId, "dialogue", saved);
+        setUserAiModel(slotId, "search",   saved);
+        setUserAiModel(slotId, "research", saved);
+      }
+    }
+    updateOpenRouterBadgeLabel();
+  });
+
   const scrollId = scrollToTurnId != null ? String(scrollToTurnId).trim() : "";
   if (scrollId) {
     requestAnimationFrame(() => {
@@ -6148,6 +6515,13 @@ async function buildChatOptsForModelRequest(p) {
       chatOpts.systemInstruction = `${curR}\n\n${RULES_SECTION_SYSTEM_APPEND}`;
     }
   }
+  // Append LocalFS tool instructions to system prompt if mode is active
+  if (localFsModeActive && localFsConfig.enabled && !accessDataDumpMode && !helpChatOpen) {
+    const curLfs = String(chatOpts.systemInstruction ?? "").trim();
+    const lfsBlock = buildLocalFsSystemBlock(localFsConfig.root);
+    chatOpts.systemInstruction = curLfs ? `${curLfs}\n\n${lfsBlock}` : lfsBlock;
+  }
+
   return { ...chatOpts, memoryTreeRouterAnalytics };
 }
 
@@ -6433,6 +6807,10 @@ function initChatComposer() {
       appendActivityLog("AI opinion requires at least 2 model keys in .env.");
       return;
     }
+    if (modeForSend === "aiTalks" && localFsModeActive && localFsConfig.enabled) {
+      appendActivityLog("AI opinion is not available while LocalFS tools are active. Disable LocalFS first.");
+      return;
+    }
 
     const modelLabel = PROVIDER_DISPLAY[providerId] ?? providerId;
 
@@ -6698,7 +7076,12 @@ function initChatComposer() {
             const keysNow = getModelApiKeys();
             const speakerKey = String(keysNow[pid] ?? "").trim();
             if (!speakerKey) continue;
-            const speakerLabel = PROVIDER_DISPLAY[pid] ?? pid;
+            // For OpenRouter slots: show the selected model's short name
+            const OR_SLOT_IDS = new Set(["openrouter", "ollama-kimi", "ollama-ds"]);
+            const speakerLabel = OR_SLOT_IDS.has(pid)
+              ? (openRouterEntries.find((e) => e.id === getUserAiModel(pid, "dialogue"))?.shortName
+                ?? PROVIDER_DISPLAY[pid] ?? pid)
+              : (PROVIDER_DISPLAY[pid] ?? pid);
             setAssistantPendingThinkingLabel(pending, `Thinking: ${speakerLabel}…`);
             const hasPrior = sections.length > 0;
             const panelPrompt = [
@@ -6838,6 +7221,112 @@ function initChatComposer() {
             if (te) setAssistantMessageMarkdown(te, fullText);
             scrollMessagesToEnd();
           }
+          // ── LocalFS tool interception (multi-step agentic loop) ──
+          if (localFsModeActive && localFsConfig.enabled && !accessDataDumpMode) {
+            const LFS_MAX_ITERATIONS = 50;
+            // conversationHistory grows with each tool round:
+            // [{ role: "user", content: original prompt },
+            //  { role: "assistant", content: reply with tool calls },
+            //  { role: "user", content: tool results },
+            //  { role: "assistant", content: next reply }, ...]
+            const lfsHistory = [
+              { role: "user",      content: promptForApi },
+              { role: "assistant", content: fullText },
+            ];
+            let lfsIteration = 0;
+
+            while (lfsIteration < LFS_MAX_ITERATIONS) {
+              const toolResult = await processToolCalls(lfsHistory.at(-1).content);
+              if (!toolResult.hadTools) break;  // model is done using tools
+
+              lfsIteration++;
+              appendActivityLog(
+                `LocalFS: step ${lfsIteration} — tool calls executed, continuing…`,
+              );
+
+              // Replace tool call blocks with results in the displayed bubble
+              fullText = toolResult.processedText;
+              const teLoop = pending?.querySelector(".msg-assistant-text");
+              if (teLoop) setAssistantMessageMarkdown(teLoop, fullText);
+              scrollMessagesToEnd();
+
+              // Build follow-up opts — same context as original but no attachments
+              const followUpPrompt = buildToolResultMessage(toolResult.toolResults);
+              const { memoryTreeRouterAnalytics: _mtLoop, ...followUpOpts } =
+                await buildChatOptsForModelRequest({
+                  persistDialogId,
+                  promptForApi: followUpPrompt,
+                  providerId,
+                  key,
+                  modeForSend,
+                  accessDataDumpMode: false,
+                  chatAttachments: undefined,
+                  introChatOpen: introContextActive,
+                  accessChatOpen,
+                  rulesChatOpen,
+                  helpChatOpen,
+                });
+
+              // Pass full conversation so model has complete tool context
+              followUpOpts.llmMessages = [
+                ...(followUpOpts.llmMessages ?? []),
+                ...lfsHistory,
+                { role: "user", content: followUpPrompt },
+              ];
+
+              // Add tool result turn to history
+              lfsHistory.push({ role: "user", content: followUpPrompt });
+
+              // Stream next model reply
+              let loopBuf = "";
+              let loopUsage = null;
+              try {
+                const loopStream = await completeChatMessageStreaming(
+                  providerId, followUpPrompt, key,
+                  (piece) => {
+                    loopBuf += piece;
+                    if (pending) pending.dataset.assistantMarkdown = loopBuf;
+                    const tef = pending?.querySelector(".msg-assistant-text");
+                    if (tef) setAssistantMessageMarkdown(tef, loopBuf);
+                    scrollMessagesToEnd();
+                  },
+                  followUpOpts,
+                );
+                loopBuf   = loopStream.text || loopBuf;
+                loopUsage = loopStream.usage ?? null;
+              } catch {
+                const { text: fallbackText, usage: fallbackUsage } =
+                  await completeChatMessage(providerId, followUpPrompt, key, followUpOpts);
+                loopBuf   = fallbackText;
+                loopUsage = fallbackUsage ?? null;
+                const tef = pending?.querySelector(".msg-assistant-text");
+                if (tef) setAssistantMessageMarkdown(tef, loopBuf);
+              }
+
+              // Accumulate token usage across all loop iterations
+              if (loopUsage) {
+                turnLlmUsage = {
+                  promptTokens:     (turnLlmUsage?.promptTokens     ?? 0) + (loopUsage.promptTokens     ?? 0),
+                  completionTokens: (turnLlmUsage?.completionTokens ?? 0) + (loopUsage.completionTokens ?? 0),
+                  totalTokens:      (turnLlmUsage?.totalTokens      ?? 0) + (loopUsage.totalTokens      ?? 0),
+                };
+              }
+
+              fullText = loopBuf;
+              lfsHistory.push({ role: "assistant", content: fullText });
+            }
+
+            if (lfsIteration > 0) {
+              appendActivityLog(
+                `LocalFS: agentic loop complete (${lfsIteration} tool step${lfsIteration > 1 ? "s" : ""}).`,
+              );
+            }
+            if (lfsIteration >= LFS_MAX_ITERATIONS) {
+              appendActivityLog("LocalFS: reached max iterations limit.");
+            }
+          }
+          // ── End LocalFS tool interception ───────────────────────────
+
           finalizeAssistantBubble(
             pending,
             fullText,
@@ -6914,6 +7403,7 @@ function initChatComposer() {
             assistant_text: assistantOut || null,
             requested_provider_id: providerId,
             responding_provider_id: providerId,
+            responding_model_id: dialogueModel(providerId) || null,
             request_type: accessDataDumpMode ? "access_data" : requestTypeFromAttachMode(modeForSend),
             user_message_at: userMessageAt,
             assistant_message_at: assistantMessageAt,
@@ -7311,6 +7801,17 @@ function bootApp() {
 // This ensures AI opinion / provider badges only show actually-available providers.
 (async () => {
   await initModelEnv();
+  // Fetch LocalFS config and restore mode preference
+  localFsConfig = await getLocalFsConfig();
+  if (localFsConfig.enabled) {
+    localFsModeActive = getLocalFsModeStored();
+  }
+  // Load OpenRouter per-model prices for accurate cost analytics
+  fetchOpenRouterModelEntries().then((entries) => {
+    openRouterEntries = entries;
+    setOpenRouterModelPrices(entries);
+    updateOpenRouterBadgeLabel();
+  }).catch(() => {});
   if (import.meta.env.DEV && !hasAnyModelApiKey()) {
     const blocker = document.getElementById("env-keys-blocker");
     const root = document.querySelector(".app-root");

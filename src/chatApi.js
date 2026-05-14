@@ -20,9 +20,9 @@ import { getUserAiModel } from "./userChatModels.js";
 export const PROVIDER_DISPLAY = {
   openai:        "ChatGPT",
   ollama:        "Gemma4",
-  "ollama-kimi": "Kimi",
-  "ollama-ds":   "DeepSeek",
-  openrouter:    "OpenRouter",
+  "ollama-kimi": "OR Slot 2",
+  "ollama-ds":   "OR Slot 3",
+  openrouter:    "OR Slot 1",
   "gemini-flash": "Gemini",
   anthropic:     "Claude",
 };

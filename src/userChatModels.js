@@ -34,14 +34,14 @@ export const DEFAULT_AI_MODEL_IDS = {
     research: "gemma4:31b-cloud",
   },
   "ollama-kimi": {
-    dialogue: "kimi-k2.6:cloud",
-    search:   "kimi-k2.6:cloud",
-    research: "kimi-k2.6:cloud",
+    dialogue: "deepseek/deepseek-v4-flash",
+    search:   "deepseek/deepseek-v4-flash",
+    research: "deepseek/deepseek-v4-flash",
   },
   "ollama-ds": {
-    dialogue: "deepseek-v4-pro:cloud",
-    search:   "deepseek-v4-pro:cloud",
-    research: "deepseek-v4-pro:cloud",
+    dialogue: "deepseek/deepseek-v4-flash",
+    search:   "deepseek/deepseek-v4-flash",
+    research: "deepseek/deepseek-v4-flash",
   },
   openrouter: {
     dialogue: "meta-llama/llama-3.3-70b-instruct:free",
@@ -90,14 +90,14 @@ export const FALLBACK_AI_MODEL_LISTS = {
     research: ["gemma4:31b-cloud"],
   },
   "ollama-kimi": {
-    dialogue: ["kimi-k2.6:cloud"],
-    search:   ["kimi-k2.6:cloud"],
-    research: ["kimi-k2.6:cloud"],
+    dialogue: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+    search:   ["deepseek/deepseek-v4-flash"],
+    research: ["deepseek/deepseek-v4-pro"],
   },
   "ollama-ds": {
-    dialogue: ["deepseek-v4-pro:cloud"],
-    search:   ["deepseek-v4-pro:cloud"],
-    research: ["deepseek-v4-pro:cloud"],
+    dialogue: ["deepseek/deepseek-v4-flash", "anthropic/claude-haiku-4.5"],
+    search:   ["deepseek/deepseek-v4-flash"],
+    research: ["anthropic/claude-haiku-4.5"],
   },
   openrouter: {
     dialogue: ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-r1:free"],

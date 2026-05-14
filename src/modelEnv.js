@@ -33,8 +33,8 @@ export async function initModelEnv() {
     _keys = {
       openai:          cfg.openai           ? "server-proxy" : "",
       ollama:          "server-proxy",
-      "ollama-kimi":   "server-proxy",
-      "ollama-ds":     "server-proxy",
+      "ollama-kimi":   cfg.openrouter ? "server-proxy" : "",
+      "ollama-ds":     cfg.openrouter ? "server-proxy" : "",
       openrouter:      cfg.openrouter       ? "server-proxy" : "",
       "gemini-flash":  cfg["gemini-flash"]  ? "server-proxy" : "",
       anthropic:       cfg.anthropic        ? "server-proxy" : "",

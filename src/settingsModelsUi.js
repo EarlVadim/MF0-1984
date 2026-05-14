@@ -12,11 +12,13 @@ import * as fetchLists from "./fetchRemoteModelLists.js";
 /** @typedef {import("./userChatModels.js").AiModelRole} AiModelRole */
 
 const AI_SETTINGS_PROVIDERS = [
-  { provider: "openai", envKey: "openai", title: "ChatGPT", images: true },
-  { provider: "ollama",      envKey: "ollama",      title: "Gemma4", images: false },
-  { provider: "openrouter", envKey: "openrouter", title: "OpenRouter",    images: false },
-  { provider: "gemini", envKey: "gemini-flash", title: "Gemini", images: true },
-  { provider: "anthropic", envKey: "anthropic", title: "Claude", images: false },
+  { provider: "openai",      envKey: "openai",       title: "ChatGPT",   images: true  },
+  { provider: "ollama",      envKey: "ollama",        title: "Gemma4",    images: false },
+  { provider: "openrouter",  envKey: "openrouter",    title: "OR Slot 1", images: false },
+  { provider: "ollama-kimi", envKey: "openrouter",    title: "OR Slot 2", images: false },
+  { provider: "ollama-ds",   envKey: "openrouter",    title: "OR Slot 3", images: false },
+  { provider: "gemini",      envKey: "gemini-flash",  title: "Gemini",    images: true  },
+  { provider: "anthropic",   envKey: "anthropic",     title: "Claude",    images: false },
 ];
 
 const ROLE_ROWS = [
@@ -96,7 +98,9 @@ async function fetchIdsForRole(provider, role, apiKey) {
     case "ollama":
       return fetchLists.fetchOllamaModelIds().catch(() => []);
     case "openrouter":
-      // Read from openrouter-models.txt on the server — no API call needed
+    case "ollama-kimi":
+    case "ollama-ds":
+      // Read from openrouter-models.txt on the server — shared with all OR slots
       return fetchLists.fetchOpenRouterModelIds().catch(() => []);
     case "gemini":
       if (role === "images") return fetchLists.fetchGeminiImageModelIds(apiKey);

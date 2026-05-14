@@ -208,6 +208,7 @@ router.post("/dialogs/:dialogId/turns", async (req, res) => {
   const assistantText = body.assistant_text != null ? String(body.assistant_text) : null;
   let requestedProviderId = String(body.requested_provider_id ?? "");
   const respondingProviderId = body.responding_provider_id != null ? String(body.responding_provider_id) : null;
+  const respondingModelId    = body.responding_model_id    != null ? String(body.responding_model_id).trim() || null : null;
   let requestType = String(body.request_type ?? "default");
   let userMessageAt = String(body.user_message_at ?? "");
   const assistantMessageAt = body.assistant_message_at != null ? String(body.assistant_message_at) : null;
@@ -276,11 +277,11 @@ router.post("/dialogs/:dialogId/turns", async (req, res) => {
     db.prepare(
       `INSERT INTO conversation_turns (
          id, dialog_id, user_text, user_attachments_json, assistant_text, requested_provider_id, responding_provider_id,
-         request_type, user_message_at, assistant_message_at, assistant_error,
+         responding_model_id, request_type, user_message_at, assistant_message_at, assistant_error,
          llm_prompt_tokens, llm_completion_tokens, llm_total_tokens
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(turnId, dialogId, userText, attachJsonToStore, assistantTextToStore, requestedProviderId, respondingProviderId,
-      requestType, userMessageAt, assistantMessageAt, assistantError, llmPromptTokens, llmCompletionTokens, llmTotalTokens);
+      respondingModelId, requestType, userMessageAt, assistantMessageAt, assistantError, llmPromptTokens, llmCompletionTokens, llmTotalTokens);
     db.prepare(`UPDATE dialogs SET updated_at = ? WHERE id = ?`).run(now, dialogId);
     db.prepare(`UPDATE themes SET updated_at = ? WHERE id = ?`).run(now, drow.theme_id);
   })();

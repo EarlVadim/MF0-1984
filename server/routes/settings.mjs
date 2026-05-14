@@ -57,19 +57,34 @@ router.get("/settings/configured-providers", (_req, res) => {
 
 /**
  * GET /api/settings/openrouter-models
- * Returns the list of OpenRouter model IDs from openrouter-models.txt.
- * Lines starting with # and blank lines are ignored.
+ * Returns OpenRouter model entries from openrouter-models.txt.
+ * Supports two line formats (lines starting with # and blank lines are ignored):
+ *   Legacy:  model_id
+ *   New:     model_id | input_per_1M_USD | output_per_1M_USD
+ *
+ * Response: { ok: true, models: Array<{ id: string, inputPer1M: number, outputPer1M: number }> }
  */
 router.get("/settings/openrouter-models", (_req, res) => {
   try {
     if (!existsSync(OPENROUTER_MODELS_FILE)) {
       return res.json({ ok: true, models: [] });
     }
-    const raw  = readFileSync(OPENROUTER_MODELS_FILE, "utf-8");
+    const raw = readFileSync(OPENROUTER_MODELS_FILE, "utf-8");
     const models = raw
       .split(/\r?\n/)
       .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("#"));
+      .filter((l) => l && !l.startsWith("#"))
+      .map((l) => {
+        const parts = l.split("|").map((p) => p.trim());
+        const id = parts[0];
+        const inputPer1M  = parts.length > 1 ? (parseFloat(parts[1]) || 0) : 0;
+        const outputPer1M = parts.length > 2 ? (parseFloat(parts[2]) || 0) : 0;
+        const shortName   = parts.length > 3 && parts[3]
+          ? parts[3]
+          : (id.split("/").pop() || id);
+        return { id, inputPer1M, outputPer1M, shortName };
+      })
+      .filter((e) => Boolean(e.id));
     res.json({ ok: true, models });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });

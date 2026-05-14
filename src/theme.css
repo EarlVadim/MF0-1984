@@ -496,7 +496,8 @@ body {
   justify-content: center;
   border-radius: 9999px;
   border: 1px solid transparent;
-  padding: 0.25rem 1.25rem;
+  padding: 0.44rem 1.25rem;   /* ×1.5 original 0.25rem vertical */
+  min-height: 2.1rem;
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 600;
@@ -5079,4 +5080,86 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
 .settings-ai-opinion-row.no-key input {
   opacity: 0.4;
   pointer-events: none;
+}
+
+/* ── LocalFS toggle button ───────────────────────────────────────────────── */
+.badge-localfs {
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+.badge-localfs:not(:disabled) {
+  opacity: 1;
+}
+.badge-localfs.active {
+  background: var(--color-accent, #4a9eff);
+  color: #fff;
+  opacity: 1;
+}
+.badge-localfs:disabled {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ── OpenRouter model picker dropdown ───────────────────────────────────── */
+.openrouter-picker {
+  position: fixed;
+  z-index: 9999;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: hsl(var(--popover, var(--background)));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.openrouter-picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.1s;
+  width: 100%;
+}
+.openrouter-picker-item:hover {
+  background: hsl(var(--accent, var(--muted)));
+}
+.openrouter-picker-item.selected {
+  background: hsl(var(--primary));
+}
+.openrouter-picker-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  line-height: 1.2;
+}
+.openrouter-picker-item.selected .openrouter-picker-name,
+.openrouter-picker-item.selected .openrouter-picker-id {
+  color: hsl(var(--primary-foreground));
+}
+.openrouter-picker-id {
+  font-size: 0.68rem;
+  color: hsl(var(--muted-foreground));
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+  line-height: 1.2;
+}
+.openrouter-picker::-webkit-scrollbar { width: 5px; }
+.openrouter-picker::-webkit-scrollbar-track { background: transparent; }
+.openrouter-picker::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
 }
