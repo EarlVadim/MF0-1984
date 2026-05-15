@@ -12,7 +12,7 @@ export const ANALYTICS_USD_PER_1M = {
   /** Gemini Flash list pricing */
   "gemini-flash": { input: 0, output: 0, tier: "Gemini Flash (AI Studio)" },
   /** Ollama — local/cloud model, no API cost */
-  ollama:        { input: 0.1, output: 0.1, tier: "Gemma4 via Ollama" },
+  ollama:        { input: 0, output: 0, tier: "Gemma4 via Ollama" },
   "ollama-kimi": { input: 0.1, output: 0.1, tier: "Kimi via Ollama" },
   "ollama-ds":   { input: 0.1, output: 0.1, tier: "DeepSeek via Ollama" },
   openrouter:    { input: 0.14, output: 0.28, tier: "OpenRouter (per-model)" },
