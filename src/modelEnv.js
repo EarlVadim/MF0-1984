@@ -8,9 +8,9 @@
 let _keys = {
   openai:         "",
   ollama:         "server-proxy",
-  "ollama-kimi":  "server-proxy",
-  "ollama-ds":    "server-proxy",
-  openrouter:     "",
+  "or-1":         "",
+  "or-2":         "",
+  "or-3":         "",
   "gemini-flash": "",
   anthropic:      "",
 };
@@ -33,9 +33,9 @@ export async function initModelEnv() {
     _keys = {
       openai:          cfg.openai           ? "server-proxy" : "",
       ollama:          "server-proxy",
-      "ollama-kimi":   cfg.openrouter ? "server-proxy" : "",
-      "ollama-ds":     cfg.openrouter ? "server-proxy" : "",
-      openrouter:      cfg.openrouter       ? "server-proxy" : "",
+      "or-1":   cfg["or-1"] ? "server-proxy" : "",
+      "or-2":   cfg["or-2"] ? "server-proxy" : "",
+      "or-3":   cfg["or-3"] ? "server-proxy" : "",
       "gemini-flash":  cfg["gemini-flash"]  ? "server-proxy" : "",
       anthropic:       cfg.anthropic        ? "server-proxy" : "",
     };
@@ -45,9 +45,9 @@ export async function initModelEnv() {
     _keys = {
       openai:         "server-proxy",
       ollama:         "server-proxy",
-      "ollama-kimi":  "server-proxy",
-      "ollama-ds":    "server-proxy",
-      openrouter:     "server-proxy",
+      "or-1":  "server-proxy",
+      "or-2":    "server-proxy",
+      "or-3":     "server-proxy",
       "gemini-flash": "server-proxy",
       anthropic:      "server-proxy",
     };

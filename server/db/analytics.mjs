@@ -63,7 +63,7 @@ export function recordAuxLlmUsageRow(
   return true;
 }
 
-export const ANALYTICS_PROVIDER_IDS = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini-flash", "anthropic"];
+export const ANALYTICS_PROVIDER_IDS = ["openai", "ollama", "or-1", "or-2", "or-3", "gemini-flash", "anthropic"];
 
 /**
  * Map any client/provider slot id into one of ANALYTICS_PROVIDER_IDS so aux rows are never dropped.
@@ -76,12 +76,12 @@ function normalizeAuxAnalyticsProviderId(pidRaw) {
   if (!raw) return "";
   const p = raw.toLowerCase();
   if (ANALYTICS_PROVIDER_IDS.includes(p)) return p;
-  if (p.startsWith("gemini")) return "gemini-flash";
+/*  if (p.startsWith("gemini")) return "gemini-flash";
   if (p.startsWith("claude")) return "anthropic";
   if (p === "ollama-kimi" || p.startsWith("kimi")) return "ollama-kimi";
   if (p === "ollama-ds" || p.startsWith("deepseek")) return "ollama-ds";
   if (p === "openrouter" || p.includes("openrouter")) return "openrouter";
-  if (p.startsWith("ollama") || p.includes("llama") || p.includes("mistral") || p.includes("qwen") || p.includes("phi")) return "ollama";
+  if (p.startsWith("ollama") || p.includes("llama") || p.includes("mistral") || p.includes("qwen") || p.includes("phi")) return "ollama"; */
   if (
     p.startsWith("gpt") ||
     /^o[0-9]/.test(p) ||
@@ -107,9 +107,9 @@ const ANALYTICS_USD_PER_MILLION = {
   anthropic: { input: 3.0, output: 15.0 },
   "gemini-flash": { input: 0.5, output: 3.0 },
   ollama:      { input: 0.5, output: 0.5 },
-  "ollama-kimi": { input: 0.5, output: 0.5 },
-  "ollama-ds":   { input: 0.5, output: 0.5 },
-  openrouter:    { input: 0.5, output: 0.5 },   // per-model pricing — tracked as zero
+  "or-1": { input: 0.5, output: 0.5 },
+  "or-2":   { input: 0.5, output: 0.5 },
+  "or-3":    { input: 0.5, output: 0.5 },   // per-model pricing — tracked as zero
 };
 
 /**
@@ -793,6 +793,44 @@ async function getAnalyticsPayload() {
     };
   }
 
+  // ── Per-model aggregation (all time) ─────────────────────────────────────
+  // Groups by responding_model_id so stats follow the model regardless of slot.
+  const byModelRaw = await adapter.all(
+    `SELECT
+       COALESCE(NULLIF(TRIM(t.responding_model_id), ''), COALESCE(NULLIF(TRIM(t.responding_provider_id), ''), t.requested_provider_id)) AS model_key,
+       COALESCE(NULLIF(TRIM(t.responding_provider_id), ''), t.requested_provider_id) AS slot,
+       COUNT(*) AS requests,
+       SUM(CASE WHEN t.assistant_message_at IS NOT NULL AND IFNULL(t.assistant_error, 0) = 0 THEN 1 ELSE 0 END) AS responses_ok,
+       SUM(COALESCE(t.llm_prompt_tokens, 0))     AS tokens_prompt,
+       SUM(COALESCE(t.llm_completion_tokens, 0)) AS tokens_completion,
+       SUM(COALESCE(t.llm_total_tokens, 0))      AS tokens_total
+     FROM conversation_turns t
+     INNER JOIN dialogs d ON d.id = t.dialog_id
+     WHERE ${analyticsDialogWhereSql("d")}
+     GROUP BY model_key
+     ORDER BY requests DESC`,
+  );
+
+  /** @type {Array<{ model: string, slot: string, requests: number, responsesOk: number, tokensPrompt: number, tokensCompletion: number, tokensTotal: number, estimatedUsd: number }>} */
+  const byModel = byModelRaw.map((r) => {
+    const model  = String(r.model_key ?? "").trim();
+    const slot   = String(r.slot ?? "").trim();
+    const tp     = Number(r.tokens_prompt) || 0;
+    const tc     = Number(r.tokens_completion) || 0;
+    // Use per-model price from openRouterModelPriceMap if available, else slot price
+    const est    = estimateProviderUsd(slot, tp, tc, model);
+    return {
+      model,
+      slot,
+      requests:     Number(r.requests) || 0,
+      responsesOk:  Number(r.responses_ok) || 0,
+      tokensPrompt:      tp,
+      tokensCompletion:  tc,
+      tokensTotal:       Number(r.tokens_total) || tp + tc,
+      estimatedUsd:      est?.totalUsd ?? 0,
+    };
+  });
+
   return {
     providers,
     providersByRange: {
@@ -800,6 +838,7 @@ async function getAnalyticsPayload() {
       last30d: providersLast30d,
       last24h: providersLast24h,
     },
+    byModel,
     dailyUsage,
     dailyTokens,
     dailyLlmTokens,

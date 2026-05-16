@@ -22,6 +22,8 @@ import analyticsRouter from "./routes/analytics.routes.mjs";
 import themesRouter from "./routes/themes.mjs";
 import llmRouter     from "./routes/llm.mjs";
 import localfsRouter  from "./routes/localfs.mjs";
+import authRouter     from "./routes/auth.mjs";
+import { attachSession } from "./middleware/auth.mjs";
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -68,6 +70,8 @@ if (apiPrefix) {
 
 app.use(securityHeaders);
 
+// Session hydration — attaches req.user to every request (null if not logged in)
+app.use(attachSession);
 // JSON parser for all /api routes (binary routes apply their own express.raw() inline).
 // Accepts both application/json and text/json (memory-graph import sends text/json in some clients).
 app.use("/api", express.json({ limit: MAX_BODY_BYTES, type: ["application/json", "text/json"] }));
@@ -75,6 +79,7 @@ app.use("/api", express.json({ limit: MAX_BODY_BYTES, type: ["application/json",
 // Ensure req.body is always at least {} after the JSON parser
 app.use("/api", (req, _res, next) => { req.body = req.body ?? {}; next(); });
 
+app.use("/api", authRouter);
 app.use("/api", healthRouter);
 app.use("/api", attachmentsRouter);
 app.use("/api", voiceRouter);

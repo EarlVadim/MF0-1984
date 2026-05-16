@@ -28,7 +28,7 @@ router.get("/ir-panel-lock", (_req, res) => {
 
 router.post("/ir-panel-lock/:panel/set", (req, res) => {
   const panel = req.params.panel;
-  if (!["intro", "rules", "access"].includes(panel)) return res.status(404).json({ ok: false, error: "Not found" });
+  if (!["intro", "rules", "access"].includes(panel)) return res.status(404).json({ ok: false, error: "Not found 1 (inPanelLock.mjs)" });
   const body = req.body ?? {};
   const h = doubleHashIrPanelPin6(body.pin ?? body.PIN);
   if (!h) return res.status(400).json({ ok: false, error: "PIN must be exactly 6 digits." });
@@ -40,7 +40,7 @@ router.post("/ir-panel-lock/:panel/set", (req, res) => {
 
 router.post("/ir-panel-lock/:panel/unlock", (req, res) => {
   const panel = req.params.panel;
-  if (!["intro", "rules", "access"].includes(panel)) return res.status(404).json({ ok: false, error: "Not found" });
+  if (!["intro", "rules", "access"].includes(panel)) return res.status(404).json({ ok: false, error: "Not found 2 (inPanelLock.mjs)" });
   const body = req.body ?? {};
   const h = doubleHashIrPanelPin6(body.pin ?? body.PIN);
   if (!h) return res.status(400).json({ ok: false, error: "PIN must be exactly 6 digits." });

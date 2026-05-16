@@ -2,13 +2,13 @@
 
 **MF0-1984** is a **local-first** single-page app for multi-provider LLM chat, structured workflows (Intro / Access / Rules / Help), a **Memory tree** (3D graph over SQLite), **themes** and dialogs, **analytics**, **favorites**, and **project profile** backup/restore (`.mf` bundles).
 
-This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer, and several UI improvements.
+This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer, **login/password authentication**, **HTTPS**, **semantic memory search**, and **per-model analytics**.
 
 | | |
 |---|---|
 | **UI dev server** | Vite — default port **1984** (`vite.config.js`) |
 | **Local API** | Node + `better-sqlite3` — default port **35184** (`API_PORT`) |
-| **Version** | **1.9.28** (based on upstream `package.json`) |
+| **Version** | **1.10.01** |
 | **Upstream** | [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984) |
 
 For architecture, data model, and operations see **[HANDOFF.md](./HANDOFF.md)**.
@@ -33,6 +33,8 @@ npm run dev
 ```
 
 Open the URL Vite prints — typically **`http://127.0.0.1:1984`**.
+
+On first open you will be prompted to **create the initial admin account** (username + password). All subsequent users are created by an admin in Settings.
 
 **API health:** `GET http://127.0.0.1:35184/api/health` → `{ "ok": true, "mfLabApi": true }`
 
@@ -60,7 +62,7 @@ Open the URL Vite prints — typically **`http://127.0.0.1:1984`**.
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
-OPENROUTER_API_KEY=          # required for OR Slot 1 / 2 / 3
+OPENROUTER_API_KEY=          # required for OR Slot 1 / 2 / 3 and semantic embeddings
 
 # Optional: shown in OpenRouter request headers
 OPENROUTER_REFERER=https://your-domain.com
@@ -73,7 +75,103 @@ LOCALFS_ROOT=/path/to/ai-workspace   # any folder the server process can read/wr
 # ── API server ────────────────────────────────────────────────
 API_PORT=35184               # default
 # API_MAX_BODY_BYTES=20971520
+
+# ── HTTPS proxy ───────────────────────────────────────────────
+HTTPS_PORT=4443              # default
+HTTPS_CERT=certs/server.crt  # path to TLS cert (auto-generated if missing)
+HTTPS_KEY=certs/server.key   # path to TLS key  (auto-generated if missing)
 ```
+
+---
+
+## Authentication
+
+The app requires login on every session. Access is controlled by username + password.
+
+### First run
+
+On the very first request after a fresh install, the login screen shows a **Register** form instead. Fill in a username and password — this creates the initial **admin** account and logs in immediately.
+
+### User management
+
+Admin users can create, list, and delete accounts via **Settings → Users**. There is no self-registration after the initial setup; only admins can add users.
+
+### Roles
+
+| Role | Can do |
+|---|---|
+| `admin` | Full access, manage users, change any password |
+| `user` | Full access to chat/memory/analytics, change own password only |
+
+### Session
+
+Sessions are stored server-side in SQLite (`sessions` table). A session cookie (`mf_session`, `HttpOnly`, `SameSite=Lax`) is set on login and cleared on logout. Session lifetime: **7 days**. The cookie gains the `Secure` flag automatically when the request arrives over HTTPS.
+
+### API endpoints
+
+| Method | Path | Auth required |
+|---|---|---|
+| `GET` | `/api/auth/setup-required` | No |
+| `POST` | `/api/auth/register` | No (first run) / Admin |
+| `POST` | `/api/auth/login` | No |
+| `POST` | `/api/auth/logout` | Yes |
+| `GET` | `/api/auth/me` | Yes |
+| `GET` | `/api/auth/users` | Admin |
+| `DELETE` | `/api/auth/users/:id` | Admin |
+| `POST` | `/api/auth/users/:id/password` | Admin or self |
+
+---
+
+## HTTPS
+
+A standalone HTTPS reverse proxy is included at `server/https-proxy.mjs`. It terminates TLS and forwards plain HTTP to the local API.
+
+```bash
+node --env-file=.env server/https-proxy.mjs
+```
+
+**Self-signed certificate (development):** if `HTTPS_CERT` / `HTTPS_KEY` files do not exist, a self-signed certificate is generated automatically using Node's built-in `crypto` — no `openssl` binary required. Files are written to `certs/server.crt` and `certs/server.key`.
+
+**Production:** point `HTTPS_CERT` and `HTTPS_KEY` at real certificate files (e.g. from Let's Encrypt / certbot). Restart the proxy after cert renewal.
+
+---
+
+## Semantic memory search (Layer 1.5)
+
+Memory tree routing uses a **hybrid retrieval pipeline**:
+
+1. **Lexical** — keyword + entity matching across all nodes.
+2. **Layer 1.5 — semantic** — cosine similarity over pre-computed embeddings via `perplexity/pplx-embed-v1-4b` (OpenRouter).
+3. **Title-scan** — LLM-assisted title-level candidate selection.
+4. **Rerank** — LLM reranks the merged candidate pool.
+
+Embeddings are computed **automatically** on every memory ingest (fire-and-forget, non-blocking). Missing embeddings can be backfilled at any time:
+
+```
+POST /api/memory-graph/reindex
+```
+
+Semantic scores influence pool ordering even on small graphs where all nodes are already returned by lexical search — the embedding model's ranking is applied as a secondary sort key.
+
+**Requires:** `OPENROUTER_API_KEY` set in `.env`.
+
+### Router diagnostics (activity log)
+
+After each turn the activity log shows a line like:
+
+```
+[memRouter] nodes=112 · lexical=112 · semantic+20 · pool=72 → selected=20
+[memRouter] semantic winners: Interests / Разработка AI-агентов, Interests / Interests
+```
+
+| Field | Meaning |
+|---|---|
+| `nodes` | Total nodes in the memory graph |
+| `lexical` | Nodes in candidate pool after lexical + title scan |
+| `semantic+N` | Nodes that received a semantic similarity boost in pool ordering |
+| `pool` | Candidates sent to the rerank LLM |
+| `selected` | Final nodes included in the context supplement |
+| `semantic winners` | Selected nodes whose pool position was boosted by semantic scoring |
 
 ---
 
@@ -184,7 +282,15 @@ LocalFS tool mode is automatically disabled when AI opinion is activated (and vi
 
 ## Analytics
 
-Token tracking and cost estimation work for all providers. For OpenRouter, costs are calculated **per model** using the prices from `openrouter-models.txt` — column 2 = input $/1M tokens, column 3 = output $/1M tokens. The `responding_model_id` column in `conversation_turns` records the exact model used for each turn.
+Token tracking and cost estimation work for all providers.
+
+### Per-slot analytics
+
+Aggregated by provider slot — shows total tokens and estimated cost per OR Slot / Gemini / Ollama.
+
+### Per-model analytics
+
+For OpenRouter, costs are calculated **per model** using the prices from `openrouter-models.txt` — column 2 = input $/1M tokens, column 3 = output $/1M tokens. The `responding_model_id` column in `conversation_turns` records the exact model used for each turn, so usage is attributed correctly even when you switch models mid-project.
 
 Restarting the server reloads prices from the file (cache is in-process only).
 
@@ -196,15 +302,23 @@ Restarting the server reloads prices from the file (cache is in-process only).
 |------|------|
 | `index.html` | App shell + provider badge buttons |
 | `src/` | Browser ES modules — chat, settings, memory tree, persistence, tools |
+| `src/memoryTreeRouter.js` | Hybrid memory retrieval pipeline (lexical + semantic + LLM rerank) |
+| `src/memoryGraphSemanticSearch.js` | Browser-side embedding + cosine similarity for semantic layer |
 | `src/localFsTools.js` | Client-side tool call parser and executor |
 | `src/userChatModels.js` | Model selection storage (global + per-dialog) |
 | `openrouter-models.txt` | OpenRouter model list with prices and short names |
 | `server/api.mjs` | Express bootstrap — loads OR prices at startup |
-| `server/routes/` | Route modules (health, LLM proxy, themes, analytics, localfs, …) |
+| `server/https-proxy.mjs` | Standalone HTTPS reverse proxy with auto self-signed cert |
+| `server/routes/` | Route modules (health, LLM proxy, themes, analytics, localfs, auth, …) |
+| `server/routes/auth.mjs` | Login / logout / register / user management |
 | `server/routes/localfs.mjs` | LocalFS sandbox API |
+| `server/middleware/auth.mjs` | `requireAuth` / `requireAdmin` Express middleware |
 | `server/db/` | Schema, migrations, analytics queries |
+| `server/db/auth.mjs` | User + session CRUD, password hashing (scrypt) |
 | `server/db/openrouterPrices.mjs` | Shared runtime OR price map (singleton) |
+| `server/services/memoryGraphEmbeddings.mjs` | Server-side embedding ingest + semantic candidate search |
 | `data/` | Runtime SQLite and caches |
+| `certs/` | TLS cert + key (auto-generated if absent) |
 | `HANDOFF.md` | Full technical orientation |
 
 ---
@@ -220,7 +334,10 @@ Restarting the server reloads prices from the file (cache is in-process only).
 | File system access | — | LocalFS sandbox (7 tools, works with any model) |
 | AI opinion participants | All providers | Configurable checkboxes in Settings |
 | Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot |
-| OpenRouter analytics | — | Per-model pricing from `openrouter-models.txt` |
+| OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.txt` |
+| Memory retrieval | Lexical + LLM rerank | + Semantic layer (pplx-embed-v1-4b, cosine, pool boosting) |
+| Authentication | — | Login/password, session cookies, admin/user roles |
+| HTTPS | — | Standalone TLS proxy, auto self-signed cert for dev |
 
 ---
 
@@ -241,4 +358,4 @@ Files most likely to conflict on upstream updates: `index.html`, `src/main.js`, 
 
 ## Security note
 
-Do not commit **`.env`** or live **SQLite** files with private data. Use project profile export/import (`.mf` bundles) and your own backup policy for sensitive environments.
+Do not commit **`.env`** or live **SQLite** files with private data. The `certs/` directory contains private key material — add it to `.gitignore` if using a real certificate. Use project profile export/import (`.mf` bundles) and your own backup policy for sensitive environments.

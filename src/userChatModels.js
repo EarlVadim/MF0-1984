@@ -33,20 +33,20 @@ export const DEFAULT_AI_MODEL_IDS = {
     search:   "gemma4:31b-cloud",
     research: "gemma4:31b-cloud",
   },
-  "ollama-kimi": {
+  "or-1": {
     dialogue: "deepseek/deepseek-v4-flash",
     search:   "deepseek/deepseek-v4-flash",
     research: "deepseek/deepseek-v4-flash",
   },
-  "ollama-ds": {
+  "or-2": {
     dialogue: "deepseek/deepseek-v4-flash",
     search:   "deepseek/deepseek-v4-flash",
     research: "deepseek/deepseek-v4-flash",
   },
-  openrouter: {
-    dialogue: "meta-llama/llama-3.3-70b-instruct:free",
-    search:   "meta-llama/llama-3.3-70b-instruct:free",
-    research: "deepseek/deepseek-r1:free",
+  "or-3": {
+    dialogue: "deepseek/deepseek-v4-flash",
+    search:   "deepseek/deepseek-v4-flash",
+    research: "deepseek/deepseek-v4-flash",
   },
 };
 
@@ -68,7 +68,7 @@ export const FALLBACK_AI_MODEL_LISTS = {
     research: ["gpt-5.4", "o4-mini", "o3-mini", "gpt-4.1", "gpt-5-search-api"],
   },
   anthropic: {
-    dialogue: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-3-5-haiku-20241022", "claude-3-7-sonnet-20250219"],
+    dialogue: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-4-5-haiku", "claude-3-7-sonnet-20250219"],
     search: ["claude-sonnet-4-6", "claude-opus-4-6"],
     research: ["claude-sonnet-4-6", "claude-opus-4-6"],
   },
@@ -89,20 +89,20 @@ export const FALLBACK_AI_MODEL_LISTS = {
     search:   ["gemma4:31b-cloud"],
     research: ["gemma4:31b-cloud"],
   },
-  "ollama-kimi": {
+  "or-1": {
     dialogue: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
     search:   ["deepseek/deepseek-v4-flash"],
     research: ["deepseek/deepseek-v4-pro"],
   },
-  "ollama-ds": {
+  "or-2": {
     dialogue: ["deepseek/deepseek-v4-flash", "anthropic/claude-haiku-4.5"],
     search:   ["deepseek/deepseek-v4-flash"],
     research: ["anthropic/claude-haiku-4.5"],
   },
-  openrouter: {
-    dialogue: ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-r1:free"],
-    search:   ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free"],
-    research: ["deepseek/deepseek-r1:free", "deepseek/deepseek-r1-0528:free"],
+  "or-3": {
+    dialogue: ["deepseek/deepseek-v4-flash", "anthropic/claude-haiku-4.5"],
+    search:   ["deepseek/deepseek-v4-flash"],
+    research: ["anthropic/claude-haiku-4.5"],
   },
 };
 

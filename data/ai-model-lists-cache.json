@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-14T10:20:04.448Z",
+  "updatedAt": "2026-05-15T11:23:50.965Z",
   "lists": {
     "openai": {
       "dialogue": [
@@ -381,139 +381,15 @@
     },
     "ollama": {
       "dialogue": [
-        "deepseek-v4-pro:cloud",
         "gemma4:26b",
         "gemma4:31b-cloud",
         "llama3.2"
       ],
       "search": [
-        "deepseek-v4-pro:cloud",
         "gemma4:31b-cloud"
       ],
       "research": [
-        "deepseek-v4-pro:cloud",
         "gemma4:31b-cloud"
-      ]
-    },
-    "openrouter": {
-      "dialogue": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-r1:free",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemini-2.0-flash-exp:free",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ],
-      "search": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemini-2.0-flash-exp:free",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ],
-      "research": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-r1-0528:free",
-        "deepseek/deepseek-r1:free",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ]
-    },
-    "ollama-kimi": {
-      "dialogue": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ],
-      "search": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ],
-      "research": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ]
-    },
-    "ollama-ds": {
-      "dialogue": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ],
-      "search": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
-      ],
-      "research": [
-        "anthropic/claude-haiku-4.5",
-        "anthropic/claude-sonnet-4.6",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro",
-        "google/gemma-4-31b-it",
-        "google/gemma-4-31b-it:free",
-        "moonshotai/kimi-k2.5",
-        "qwen/qwen3.5-flash-02-23",
-        "qwen/qwen3.5-plus-02-15",
-        "qwen/qwen3.6-plus"
       ]
     }
   }

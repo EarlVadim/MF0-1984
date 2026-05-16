@@ -1736,6 +1736,62 @@ button.btn {
   border-bottom: none;
 }
 
+/* By-model breakdown table */
+.analytics-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.analytics-model-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.analytics-model-table th,
+.analytics-model-table td {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.analytics-model-table th {
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  background: hsl(var(--muted) / 0.18);
+}
+
+.analytics-model-table td.analytics-model-col,
+.analytics-model-table th:first-child,
+.analytics-model-table th:nth-child(2) {
+  text-align: left;
+}
+
+.analytics-model-table td.analytics-model-col {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: hsl(var(--foreground));
+}
+
+.analytics-model-table td.analytics-cost-col {
+  color: hsl(var(--primary));
+  font-weight: 500;
+}
+
+.analytics-model-table tbody tr:hover td {
+  background: hsl(var(--muted) / 0.15);
+}
+
+.analytics-model-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .analytics-pricing-note {
   margin: 0.65rem 0 0;
   font-size: 0.78rem;
@@ -1846,13 +1902,13 @@ button.btn {
 .analytics-bar-seg--anthropic {
   background: #d97757;
 }
-.analytics-bar-seg--ollama-kimi {
+.analytics-bar-seg--or-1 {
   background: #e308ea;
 }
-.analytics-bar-seg--ollama-ds {
+.analytics-bar-seg--or-2 {
   background: #2408ea;
 }
-.analytics-bar-seg--openrouter {
+.analytics-bar-seg--or-3 {
   background: #00ff00;
 }
 
@@ -3465,7 +3521,7 @@ html:not(.dark) .msg-assistant-text.msg-assistant-text--md .msg-md-code-block pr
   display: flex;
   flex-direction: column;
   max-height: min(840px, 110vh);
-  width: min(100vw - 1.34rem, 22rem);
+  width: min(100vw - 1.34rem, 29rem);
   overflow: hidden;
   border-radius: 1rem;
   border: 1px solid hsl(var(--border));

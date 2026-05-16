@@ -15,7 +15,7 @@ export function securityHeaders(_req, res, next) {
 }
 
 export function notFound(_req, res) {
-  res.status(404).json({ ok: false, error: "Not found" });
+  res.status(404).json({ ok: false, error: "404 Not found (http.mjs)" });
 }
 
 /** Express 5 error-handler (4-arg signature required). */

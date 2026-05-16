@@ -20,9 +20,9 @@ import { getUserAiModel } from "./userChatModels.js";
 export const PROVIDER_DISPLAY = {
   openai:        "ChatGPT",
   ollama:        "Gemma4",
-  "ollama-kimi": "OR Slot 2",
-  "ollama-ds":   "OR Slot 3",
-  openrouter:    "OR Slot 1",
+  "or-1": "OR Slot 1",
+  "or-2":   "OR Slot 2",
+  "or-3":    "OR Slot 3",
   "gemini-flash": "Gemini",
   anthropic:     "Claude",
 };
@@ -124,34 +124,34 @@ function pickOllama(ws, dr) {
   return ollamaDialogue();
 }
 
-function kimiDialogue()  { return getUserAiModel("ollama-kimi", "dialogue"); }
-function kimiSearch()    { return getUserAiModel("ollama-kimi", "search"); }
-function kimiResearch()  { return getUserAiModel("ollama-kimi", "research"); }
+function OR1Dialogue()  { return getUserAiModel("or-1", "dialogue"); }
+function OR1Search()    { return getUserAiModel("or-1", "search"); }
+function OR1Research()  { return getUserAiModel("or-1", "research"); }
 /** @param {boolean} ws @param {boolean} dr */
-function pickKimi(ws, dr) {
-  if (dr) return kimiResearch();
-  if (ws) return kimiSearch();
-  return kimiDialogue();
+function pickOR1(ws, dr) {
+  if (dr) return OR1Research();
+  if (ws) return OR1Search();
+  return OR1Dialogue();
 }
 
-function dsDialogue()    { return getUserAiModel("ollama-ds", "dialogue"); }
-function dsSearch()      { return getUserAiModel("ollama-ds", "search"); }
-function dsResearch()    { return getUserAiModel("ollama-ds", "research"); }
+function OR2Dialogue()    { return getUserAiModel("or-2", "dialogue"); }
+function OR2Search()      { return getUserAiModel("or-2", "search"); }
+function OR2Research()    { return getUserAiModel("or-2", "research"); }
 /** @param {boolean} ws @param {boolean} dr */
-function pickDs(ws, dr) {
-  if (dr) return dsResearch();
-  if (ws) return dsSearch();
-  return dsDialogue();
+function pickOR2(ws, dr) {
+  if (dr) return OR2Research();
+  if (ws) return OR2Search();
+  return OR2Dialogue();
 }
 
-function orDialogue()   { return getUserAiModel("openrouter", "dialogue"); }
-function orSearch()     { return getUserAiModel("openrouter", "search"); }
-function orResearch()   { return getUserAiModel("openrouter", "research"); }
+function OR3Dialogue()   { return getUserAiModel("or-3", "dialogue"); }
+function OR3Search()     { return getUserAiModel("or-3", "search"); }
+function OR3Research()   { return getUserAiModel("or-3", "research"); }
 /** @param {boolean} ws @param {boolean} dr */
-function pickOr(ws, dr) {
-  if (dr) return orResearch();
-  if (ws) return orSearch();
-  return orDialogue();
+function pickOR3(ws, dr) {
+  if (dr) return OR3Research();
+  if (ws) return OR3Search();
+  return OR3Dialogue();
 }
 
 /** Returns the dialogue-tier model ID for a provider. */
@@ -161,9 +161,9 @@ export function dialogueModel(providerId) {
     case "anthropic": return anthropicDialogue();
     case "gemini-flash": return geminiDialogue();
     case "ollama":      return ollamaDialogue();
-    case "ollama-kimi": return kimiDialogue();
-    case "ollama-ds":   return dsDialogue();
-    case "openrouter":  return orDialogue();
+    case "or-1": return OR1Dialogue();
+    case "or-2":   return OR2Dialogue();
+    case "or-3":  return OR3Dialogue();
     default: return "";
   }
 }
@@ -175,9 +175,9 @@ function pickModel(providerId, webSearch, deepResearch) {
     case "anthropic": return pickAnthropic(webSearch, deepResearch);
     case "gemini-flash": return pickGemini(webSearch, deepResearch);
     case "ollama":      return pickOllama(webSearch, deepResearch);
-    case "ollama-kimi": return pickKimi(webSearch, deepResearch);
-    case "ollama-ds":   return pickDs(webSearch, deepResearch);
-    case "openrouter":  return pickOr(webSearch, deepResearch);
+    case "or-1": return pickOR1(webSearch, deepResearch);
+    case "or-2":   return pickOR2(webSearch, deepResearch);
+    case "or-3":  return pickOR3(webSearch, deepResearch);
     default: throw new Error("Unknown provider");
   }
 }
@@ -519,15 +519,15 @@ export function apiModelHint(providerId, extras = {}) {
     case "ollama":
       if (dr) return `${ollamaResearch()}${suffixDr}`;
       return ws ? ollamaSearch() : ollamaDialogue();
-    case "ollama-kimi":
-      if (dr) return `${kimiResearch()}${suffixDr}`;
-      return ws ? kimiSearch() : kimiDialogue();
-    case "ollama-ds":
-      if (dr) return `${dsResearch()}${suffixDr}`;
-      return ws ? dsSearch() : dsDialogue();
-    case "openrouter":
-      if (dr) return `${orResearch()}${suffixDr}`;
-      return ws ? orSearch() : orDialogue();
+    case "or-1":
+      if (dr) return `${OR1Research()}${suffixDr}`;
+      return ws ? OR1Search() : OR1Dialogue();
+    case "or-2":
+      if (dr) return `${OR2Research()}${suffixDr}`;
+      return ws ? OR2Search() : OR2Dialogue();
+    case "or-3":
+      if (dr) return `${OR3Research()}${suffixDr}`;
+      return ws ? OR3Search() : OR3Dialogue();
     default:
       return "";
   }
@@ -910,9 +910,9 @@ export async function completeImageGeneration(providerId, prompt, apiKey, option
     }
     case "anthropic":
     case "ollama":
-    case "ollama-kimi":
-    case "ollama-ds":
-    case "openrouter":
+    case "or-1`":
+    case "or-2":
+    case "or-3":
       throw new Error(
         "This model does not generate images. Choose ChatGPT or Gemini (key in .env).",
       );

@@ -306,12 +306,18 @@ async function getMemoryGraphPayload() {
     return { nodes: [], links: [] };
   }
   const nodes = await adapter.all(
-    `SELECT id, category, label, blob FROM memory_graph_nodes ORDER BY category ASC, label COLLATE NOCASE ASC`,
+    `SELECT id, category, label, blob, embedding FROM memory_graph_nodes ORDER BY category ASC, label COLLATE NOCASE ASC`,
   );
   const links = await adapter.all(
     `SELECT id, source_node_id AS source, target_node_id AS target, relation AS label FROM memory_graph_edges`,
   );
-  return { nodes, links };
+  const normalizedNodes = nodes.map(n => ({
+    ...n,
+    // Buffer.from() safely handles both Buffer and Uint8Array from different SQLite drivers.
+    // Plain Uint8Array.toString('base64') returns "1,2,3,..." — NOT base64.
+    embedding: n.embedding ? Buffer.from(n.embedding).toString('base64') : null,
+  }));
+  return { nodes: normalizedNodes, links };
 }
 
 /**
@@ -393,6 +399,27 @@ async function ingestMemoryGraphFromBody(body) {
   });
 
   const insertedLinks = tx();
+
+  // Fire-and-forget: schedule embedding updates for all upserted nodes.
+  // Import lazily to avoid circular dependency (memoryGraph ← memoryGraphEmbeddings ← migrations ← memoryGraph).
+  if (keyToId.size > 0) {
+    import("../services/memoryGraphEmbeddings.mjs").then(({ scheduleNodeEmbedding }) => {
+      for (const [nk, nodeId] of keyToId) {
+        // nk format is "Category\nLabel" (memoryGraphNodeKey)
+        const ent = entities.find((e) => {
+          if (!e || typeof e !== "object") return false;
+          const c = normalizeMemoryGraphCategory(String(e.category ?? ""));
+          const l = normGraphLabel(String(e.label ?? ""));
+          return memoryGraphNodeKey(c, l) === nk;
+        });
+        const category = ent ? normalizeMemoryGraphCategory(String(ent.category ?? "")) : "";
+        const label    = ent ? normGraphLabel(String(ent.label ?? ""))                  : "";
+        const blob     = ent ? String(ent.notes ?? "").trim()                           : "";
+        scheduleNodeEmbedding(nodeId, category, label, blob);
+      }
+    }).catch(() => { /* embedding is non-critical */ });
+  }
+
   return { ok: true, upsertedEntities: upserted, insertedLinks, commandsApplied };
 }
 

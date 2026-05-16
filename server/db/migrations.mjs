@@ -35,6 +35,8 @@ const migration008 = path.join(root, "db", "migrations", "008_access_external_se
 const migration009 = path.join(root, "db", "migrations", "009_analytics_usage_archive.sql");
 const migration010 = path.join(root, "db", "migrations", "010_llm_token_usage.sql");
 const migration011 = path.join(root, "db", "migrations", "011_analytics_aux_llm_usage.sql");
+const migration012 = path.join(root, "db", "migrations", "012_memory_graph_embeddings.sql");
+const migration013 = path.join(root, "db", "migrations", "013_users.sql");
 
 function estimateTokensFromText(text) {
   const s = String(text ?? "").trim();
@@ -212,6 +214,15 @@ function migrateAccessExternalServicesFromJsonIfNeeded(database) {
   }
 }
 
+function applyMemoryGraphEmbeddingsMigration(database) {
+  const cols = database.prepare(`PRAGMA table_info(memory_graph_nodes)`).all();
+  const names = new Set(cols.map((c) => c.name));
+  if (names.has("embedding")) return;
+  if (fs.existsSync(migration012)) {
+    database.exec(fs.readFileSync(migration012, "utf8"));
+  }
+}
+
 function applyAnalyticsAuxLlmUsageMigration(database) {
   const row = database
     .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='analytics_aux_llm_usage'`)
@@ -365,11 +376,16 @@ export function createDatabase(filePath) {
   applyAnalyticsUsageArchiveMigration(database);
   applyLlmTokenUsageMigration(database);
   applyAnalyticsAuxLlmUsageMigration(database);
+  applyMemoryGraphEmbeddingsMigration(database);
   applyAnalyticsAuxConversationTurnIdColumn(database);
   applyAnalyticsAuxDialogIdColumn(database);
   backfillVoiceReplyTtsConversationTurnIds(database);
   backfillAuxDialogIdFromConversationTurn(database);
   applyRespondingModelIdColumn(database);
+  // 013: users + sessions tables (auth)
+  if (fs.existsSync(migration013)) {
+    database.exec(fs.readFileSync(migration013, "utf8"));
+  }
   return database;
 }
 

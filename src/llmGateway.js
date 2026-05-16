@@ -299,7 +299,10 @@ export async function callLlm(opts) {
       break;
     }
 
-    case "openrouter": {
+    case "or-1":
+	case "or-2":
+    case "or-3":
+    case "openrouter":	{
       // OpenRouter uses the same OpenAI-compatible format.
       // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
       const systemMsg = system ? [{ role: "system", content: system }] : [];
@@ -310,7 +313,7 @@ export async function callLlm(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      const res = await fetch("/api/llm/openrouter/api/v1/chat/completions", {
+      const res = await fetch("/api/llm/or-1/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify(body),
@@ -408,31 +411,6 @@ export async function callLlm(opts) {
       break;
     }
 
-    case "ollama-kimi":
-    case "ollama-ds": {
-      // OpenRouter slots 2 & 3 — independent model selection, same API as openrouter.
-      const systemMsg = system ? [{ role: "system", content: system }] : [];
-      const allMsgs = mergeAdjacentRoles([
-        ...systemMsg,
-        ...messages.filter((m) => m.role !== "system"),
-      ]);
-      const slotPath = provider === "ollama-kimi"
-        ? "/api/llm/ollama-kimi/api/v1/chat/completions"
-        : "/api/llm/ollama-ds/api/v1/chat/completions";
-      const res = await fetch(slotPath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model, messages: allMsgs }),
-        signal: abortSignal || undefined,
-      });
-      if (!res.ok) throw new Error(await readErrorBody(res));
-      const data = await res.json();
-      text = openAiContentToString(data.choices?.[0]?.message?.content);
-      if (!text.trim()) throw new Error("Empty API response");
-      rawUsage = usageFromOpenAiStyle(data.usage);
-      break;
-    }
-
     default:
       throw new Error(`callLlm: unknown provider "${provider}"`);
   }
@@ -510,29 +488,6 @@ export async function callLlmStream(opts) {
       break;
     }
 
-    case "openrouter": {
-      // OpenRouter streaming — OpenAI-compatible SSE.
-      const systemMsg = system ? [{ role: "system", content: system }] : [];
-      const allMsgs = mergeAdjacentRoles([
-        ...systemMsg,
-        ...messages.filter((m) => m.role !== "system"),
-      ]);
-      const res = await fetch("/api/llm/openrouter/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({ model, messages: allMsgs, stream: true }),
-        signal: abortSignal || undefined,
-      });
-      const orStream = await streamOpenAICompatJson(res, onDelta);
-      text = orStream.text;
-      rawUsage = orStream.usage ?? null;
-      break;
-    }
-
     case "ollama": {
       // Local Ollama streaming.
       const systemMsg = system ? [{ role: "system", content: system }] : [];
@@ -556,34 +511,9 @@ export async function callLlmStream(opts) {
       break;
     }
 
-    case "ollama-kimi":
-    case "ollama-ds": {
-      // OpenRouter slots 2 & 3 — streaming.
-      const systemMsg = system ? [{ role: "system", content: system }] : [];
-      const allMsgs = mergeAdjacentRoles([
-        ...systemMsg,
-        ...messages.filter((m) => m.role !== "system"),
-      ]);
-      const slotPath = provider === "ollama-kimi"
-        ? "/api/llm/ollama-kimi/api/v1/chat/completions"
-        : "/api/llm/ollama-ds/api/v1/chat/completions";
-      const res = await fetch(slotPath, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({ model, messages: allMsgs, stream: true }),
-        signal: abortSignal || undefined,
-      });
-      const oStream = await streamOpenAICompatJson(res, onDelta);
-      text = oStream.text;
-      rawUsage = oStream.usage ?? null;
-      break;
-    }
-
-    case "openrouter": {
+    case "or-1":
+	case "or-2":
+    case "or-3": {
       // OpenRouter uses the same OpenAI-compatible format.
       // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
       const systemMsg = system ? [{ role: "system", content: system }] : [];
@@ -594,7 +524,7 @@ export async function callLlmStream(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      const res = await fetch("/api/llm/openrouter/api/v1/chat/completions", {
+      const res = await fetch("/api/llm/or-1/api/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify(body),

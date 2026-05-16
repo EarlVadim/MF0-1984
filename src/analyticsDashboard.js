@@ -4,7 +4,7 @@ import { escapeHtml } from "./escapeHtml.js";
 import { estimateProviderUsd, formatUsdEstimate } from "./analyticsPricing.js";
 import { getChatAnalysisPriority } from "./chatAnalysisPriority.js";
 
-const PROVIDER_IDS = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini-flash", "anthropic"];
+const PROVIDER_IDS = ["openai", "ollama", "or-1", "or-2", "or-3", "gemini-flash", "anthropic"];
 
 /** `YYYY-MM-DD` → `MM.DD` for chart axis */
 function chartDayLabelMmDd(isoDate) {
@@ -271,6 +271,44 @@ function renderAnalytics(root, raw, activeRange) {
     }">${escapeHtml(b.label)}</button>`;
   }).join("");
 
+  // ── By-model table ────────────────────────────────────────────────────────
+  const byModelArr = Array.isArray(data.byModel) ? data.byModel : [];
+  const byModelHtml = byModelArr.length === 0 ? "" : (() => {
+    const fmtN  = (n) => Number(n).toLocaleString();
+    const fmtU  = (u) => formatUsdEstimate(Number(u) || 0);
+    const rows  = byModelArr.map((m) => {
+      const model = escapeHtml(String(m.model ?? "—"));
+      const slot  = escapeHtml(String(m.slot  ?? "—"));
+      return `<tr>
+        <td class="analytics-model-col">${model}</td>
+        <td>${slot}</td>
+        <td>${fmtN(m.requests)}</td>
+        <td>${fmtN(m.tokensPrompt)}</td>
+        <td>${fmtN(m.tokensCompletion)}</td>
+        <td>${fmtN(m.tokensTotal)}</td>
+        <td class="analytics-cost-col">${fmtU(m.estimatedUsd)}</td>
+      </tr>`;
+    }).join("");
+    return `
+      <section class="analytics-chart-block">
+        <h3 class="analytics-section-title">By model — all time</h3>
+        <p class="analytics-tokens-note">Grouped by the actual model used (responding_model_id), independent of which OR slot it ran on. Cost uses per-model pricing from openrouter-models.txt where available.</p>
+        <div class="analytics-table-wrap">
+          <table class="analytics-model-table" role="table" aria-label="Usage by model">
+            <thead>
+              <tr>
+                <th>Model</th><th>Slot</th><th>Requests</th>
+                <th>Prompt tok</th><th>Completion tok</th><th>Total tok</th>
+                <th>Est. cost (USD)</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </section>`;
+  })();
+  // ── End by-model table ────────────────────────────────────────────────────
+
   root.innerHTML = `
     <div class="analytics-inner">
       <header class="analytics-header">
@@ -321,6 +359,7 @@ function renderAnalytics(root, raw, activeRange) {
         <div class="analytics-meta-card"><div class="analytics-meta-label">Memory edges</div><div class="analytics-meta-value">${edges}</div></div>
         <div class="analytics-meta-card"><div class="analytics-meta-label">Memory groups</div><div class="analytics-meta-value">${groups}</div></div>
       </section>
+      ${byModelHtml}
     </div>`;
 }
 

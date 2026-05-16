@@ -63,7 +63,7 @@ export function recordAuxLlmUsageRow(
   return true;
 }
 
-export const ANALYTICS_PROVIDER_IDS = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini-flash", "anthropic"];
+export const ANALYTICS_PROVIDER_IDS = ["openai", "ollama", "or-1", "or-2", "or-3", "gemini-flash", "anthropic"];
 
 /**
  * Map any client/provider slot id into one of ANALYTICS_PROVIDER_IDS so aux rows are never dropped.
@@ -76,12 +76,12 @@ function normalizeAuxAnalyticsProviderId(pidRaw) {
   if (!raw) return "";
   const p = raw.toLowerCase();
   if (ANALYTICS_PROVIDER_IDS.includes(p)) return p;
-  if (p.startsWith("gemini")) return "gemini-flash";
+ /* if (p.startsWith("gemini")) return "gemini-flash";
   if (p.startsWith("claude")) return "anthropic";
-  if (p === "ollama-kimi" || p.startsWith("kimi")) return "ollama-kimi";
-  if (p === "ollama-ds" || p.startsWith("deepseek")) return "ollama-ds";
-  if (p === "openrouter" || p.includes("openrouter")) return "openrouter";
-  if (p.startsWith("ollama") || p.includes("llama") || p.includes("mistral") || p.includes("qwen") || p.includes("phi")) return "ollama";
+  if (p === "or-1" || p.startsWith("kimi")) return "ollama-kimi";
+  if (p === "or-2" || p.startsWith("deepseek")) return "ollama-ds";
+  if (p === "or-3" || p.includes("openrouter")) return "openrouter";
+  if (p.startsWith("ollama") || p.includes("llama") || p.includes("mistral") || p.includes("qwen") || p.includes("phi")) return "ollama"; */
   if (
     p.startsWith("gpt") ||
     /^o[0-9]/.test(p) ||
@@ -107,9 +107,9 @@ const ANALYTICS_USD_PER_MILLION = {
   anthropic: { input: 3.0, output: 15.0 },
   "gemini-flash": { input: 0.5, output: 3.0 },
   ollama:      { input: 0.5, output: 0.5 },
-  "ollama-kimi": { input: 0.5, output: 0.5 },
-  "ollama-ds":   { input: 0.5, output: 0.5 },
-  openrouter:    { input: 0.5, output: 0.5 },   // per-model pricing — tracked as zero
+  "or-1": { input: 0.5, output: 0.5 },
+  "or-2":   { input: 0.5, output: 0.5 },
+  "or-3":    { input: 0.5, output: 0.5 },   // per-model pricing — tracked as zero
 };
 
 import { openRouterModelPriceMap } from "./openrouterPrices.mjs";
@@ -125,7 +125,7 @@ function estimateProviderUsd(providerId, promptTokens, completionTokens, modelId
   const c = Number(completionTokens) || 0;
 
   // Precise per-model pricing for OpenRouter
-  if (providerId === "openrouter" && modelId) {
+  if ( (providerId === "or-1" || providerId === "or-2" || providerId === "or-3") && modelId) {
     const price = openRouterModelPriceMap.get(String(modelId));
     if (price) {
       const inputUsd  = (p / 1_000_000) * price.inputPer1M;

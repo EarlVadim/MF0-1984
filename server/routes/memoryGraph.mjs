@@ -9,6 +9,7 @@ import {
   ingestMemoryGraphFromBody,
 } from "../db/memoryGraph.mjs";
 import { decodeImportBodyFromBuffer, normalizeImportPayload, replaceMemoryGraphInDatabase } from "../memoryGraphImport.mjs";
+import { batchReindexMissingEmbeddings } from "../services/memoryGraphEmbeddings.mjs";
 
 const router = Router();
 const BODY_LIMIT = MAX_BODY_BYTES;
@@ -48,6 +49,18 @@ router.post("/memory-graph/ingest", async (req, res) => {
     res.json(out);
   } catch (e) {
     res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// POST /api/memory-graph/reindex
+// Backfill embeddings for all nodes where embedding IS NULL.
+// Safe to call multiple times — only processes nodes missing a vector.
+router.post("/memory-graph/reindex", async (_req, res) => {
+  try {
+    const result = await batchReindexMissingEmbeddings();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
 

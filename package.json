@@ -16,7 +16,9 @@
     "dev:vite": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "db:init": "node scripts/init-db.mjs"
+    "db:init": "node scripts/init-db.mjs",
+	"https": "node --env-file=.env server/https-proxy.mjs",
+    "dev:https": "concurrently -k -n api,vite,https -c cyan,magenta,green \"npm run api\" \"vite\" \"npm run https\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

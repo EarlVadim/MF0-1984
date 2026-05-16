@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cachePath = path.join(__dirname, "../..", "data", "ai-model-lists-cache.json");
 
-const PROVIDERS = new Set(["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini", "anthropic"]);
+const PROVIDERS = new Set(["openai", "ollama", "or-1", "or-2", "or-3", "gemini", "anthropic"]);
 const ROLES = new Set(["dialogue", "images", "search", "research"]);
 
 function sanitize(raw) {

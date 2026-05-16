@@ -14,9 +14,9 @@ import * as fetchLists from "./fetchRemoteModelLists.js";
 const AI_SETTINGS_PROVIDERS = [
   { provider: "openai",      envKey: "openai",       title: "ChatGPT",   images: true  },
   { provider: "ollama",      envKey: "ollama",        title: "Gemma4",    images: false },
-  { provider: "openrouter",  envKey: "openrouter",    title: "OR Slot 1", images: false },
-  { provider: "ollama-kimi", envKey: "openrouter",    title: "OR Slot 2", images: false },
-  { provider: "ollama-ds",   envKey: "openrouter",    title: "OR Slot 3", images: false },
+  { provider: "or-1",        envKey: "openrouter",    title: "OR Slot 1", images: false },
+  { provider: "or-2",        envKey: "openrouter",    title: "OR Slot 2", images: false },
+  { provider: "or-3",        envKey: "openrouter",    title: "OR Slot 3", images: false },
   { provider: "gemini",      envKey: "gemini-flash",  title: "Gemini",    images: true  },
   { provider: "anthropic",   envKey: "anthropic",     title: "Claude",    images: false },
 ];
@@ -97,9 +97,9 @@ async function fetchIdsForRole(provider, role, apiKey) {
       return fetchLists.fetchOpenAiResearchModelIds(apiKey);
     case "ollama":
       return fetchLists.fetchOllamaModelIds().catch(() => []);
-    case "openrouter":
-    case "ollama-kimi":
-    case "ollama-ds":
+    case "or-1":
+    case "or-2":
+    case "or-3":
       // Read from openrouter-models.txt on the server — shared with all OR slots
       return fetchLists.fetchOpenRouterModelIds().catch(() => []);
     case "gemini":

@@ -9,7 +9,7 @@
     />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* http://localhost:* https: ws: wss:; img-src 'self' data: blob: https: http:; font-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'"
+      content="default-src 'self'; script-src 'self' 'sha256-WoDwLCeN20VPOypht6p8DQ2Pa8VqeUH9o6CjuRBWb5Q='; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* http://localhost:* https: ws: wss:; img-src 'self' data: blob: https: http:; font-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'"
     />
     <title>MF0-1984</title>
     <script src="/pre-app-boot.js"></script>
@@ -220,9 +220,9 @@
               <div id="settings-ai-priority-badges" class="model-badges settings-ai-priority-badges">
                 <button type="button" class="badge" data-provider="openai">ChatGPT</button>
                 <button type="button" class="badge" data-provider="ollama">Gemma4</button>
-                <button type="button" class="badge" data-provider="ollama-kimi">OR Slot 2</button>
-                <button type="button" class="badge" data-provider="ollama-ds">OR Slot 3</button>
-                <button type="button" class="badge" data-provider="openrouter">OpenRouter</button>
+                <button type="button" class="badge" data-provider="or-1">OR Slot 1</button>
+                <button type="button" class="badge" data-provider="or-2">OR Slot 2</button>
+                <button type="button" class="badge" data-provider="or-3">OR Slot 3</button>
                 <button type="button" class="badge" data-provider="gemini-flash">Gemini</button>
                 <button type="button" class="badge" data-provider="anthropic">Claude</button>
               </div>
@@ -1138,9 +1138,9 @@
               <div class="model-badges" id="model-badges" aria-label="Model providers">
                 <button type="button" class="badge" data-provider="openai">ChatGPT</button>
                 <button type="button" class="badge" data-provider="ollama">Gemma4</button>
-                <button type="button" class="badge" data-provider="ollama-kimi">OR Slot 2</button>
-                <button type="button" class="badge" data-provider="ollama-ds">OR Slot 3</button>
-                <button type="button" class="badge" data-provider="openrouter">OpenRouter</button>
+                <button type="button" class="badge" data-provider="or-1">OR Slot 1</button>
+                <button type="button" class="badge" data-provider="or-2">OR Slot 2</button>
+                <button type="button" class="badge" data-provider="or-3">OR Slot 3</button>
                 <button type="button" class="badge" data-provider="gemini-flash">Gemini</button>
                 <button type="button" class="badge" data-provider="anthropic">Claude</button>
                 <button
@@ -1463,5 +1463,111 @@
     </div>
 
     <script type="module" src="/src/main.js"></script>
+	<!-- ── Auth Gate ──────────────────────────────────────────────────── -->
+    <div id="auth-gate" style="display:none;position:fixed;inset:0;z-index:99999;
+         background:var(--bg,#0e0e10);align-items:center;justify-content:center;
+         font-family:inherit;">
+      <div style="width:100%;max-width:360px;padding:0 16px;">
+        <div style="text-align:center;margin-bottom:28px;">
+          <div style="font-size:26px;font-weight:700;letter-spacing:-.5px;
+               color:var(--fg,#e8e8ea);">MF0-1984</div>
+          <div id="auth-subtitle" style="font-size:13px;color:var(--muted,#888);margin-top:4px;">Sign in to continue</div>
+        </div>
+        <div id="auth-error" style="display:none;padding:10px 14px;margin-bottom:14px;
+             background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);
+             border-radius:8px;font-size:13px;color:#f87171;"></div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <input id="auth-username" type="text" placeholder="Username" autocomplete="username"
+            style="padding:11px 14px;border-radius:8px;border:1px solid var(--border,#333);
+                   background:var(--input-bg,#1a1a1e);color:var(--fg,#e8e8ea);
+                   font-size:14px;outline:none;width:100%;box-sizing:border-box;" />
+          <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password"
+            style="padding:11px 14px;border-radius:8px;border:1px solid var(--border,#333);
+                   background:var(--input-bg,#1a1a1e);color:var(--fg,#e8e8ea);
+                   font-size:14px;outline:none;width:100%;box-sizing:border-box;" />
+          <button id="auth-submit"
+            style="padding:12px;border-radius:8px;border:none;
+                   background:var(--accent,#7c5cfc);color:#fff;font-size:14px;font-weight:600;
+                   cursor:pointer;margin-top:2px;transition:opacity .15s;">Sign In</button>
+        </div>
+        <div style="text-align:center;margin-top:18px;font-size:13px;color:var(--muted,#888);">
+          <span id="auth-toggle-hint">No account yet?</span>
+          <button id="auth-toggle"
+            style="background:none;border:none;color:var(--accent,#7c5cfc);
+                   font-size:13px;cursor:pointer;padding:0 0 0 4px;text-decoration:underline;">Register</button>
+        </div>
+        <div id="auth-register-note" style="display:none;margin-top:14px;padding:10px 14px;
+             background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.25);
+             border-radius:8px;font-size:12px;color:var(--muted,#888);line-height:1.5;">
+          First registered user becomes <strong style="color:var(--fg,#e8e8ea)">admin</strong>.
+          Subsequent: admin approval or
+          <code style="background:rgba(255,255,255,.06);padding:1px 4px;border-radius:4px;">ALLOW_REGISTRATION=true</code> in .env
+        </div>
+      </div>
+    </div>
+    <script>
+    (function () {
+      const API = "/api/auth";
+      let mode = "login";
+      const gate = document.getElementById("auth-gate");
+      const errEl = document.getElementById("auth-error");
+      const submitBtn = document.getElementById("auth-submit");
+      const toggleBtn = document.getElementById("auth-toggle");
+      const subtitle = document.getElementById("auth-subtitle");
+      const toggleHint = document.getElementById("auth-toggle-hint");
+      const regNote = document.getElementById("auth-register-note");
+      const userIn = document.getElementById("auth-username");
+      const passIn = document.getElementById("auth-password");
+      function showError(msg) { errEl.textContent = msg; errEl.style.display = "block"; }
+      function clearError() { errEl.style.display = "none"; }
+      function setMode(m) {
+        mode = m; clearError();
+        if (m === "register") {
+          subtitle.textContent = "Create an account";
+          submitBtn.textContent = "Register";
+          toggleBtn.textContent = "Sign In";
+          toggleHint.textContent = "Already have an account?";
+          regNote.style.display = "block";
+        } else {
+          subtitle.textContent = "Sign in to continue";
+          submitBtn.textContent = "Sign In";
+          toggleBtn.textContent = "Register";
+          toggleHint.textContent = "No account yet?";
+          regNote.style.display = "none";
+        }
+      }
+      toggleBtn.addEventListener("click", () => setMode(mode === "login" ? "register" : "login"));
+      async function submit() {
+        clearError();
+        const username = userIn.value.trim();
+        const password = passIn.value;
+        if (!username || !password) { showError("Fill in both fields."); return; }
+        submitBtn.disabled = true; submitBtn.style.opacity = ".6";
+        try {
+          const res = await fetch(API + "/" + mode, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await res.json();
+          if (!data.ok) { showError(data.error || "Unknown error"); return; }
+          gate.style.display = "none";
+          window.__authUser = data.user;
+          document.dispatchEvent(new CustomEvent("mf:auth", { detail: data.user }));
+        } catch (e) {
+          showError("Network error — server unavailable.");
+        } finally {
+          submitBtn.disabled = false; submitBtn.style.opacity = "1";
+        }
+      }
+      submitBtn.addEventListener("click", submit);
+      [userIn, passIn].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") submit(); }));
+      fetch(API + "/me").then(r => r.json()).then(data => {
+        if (data.ok) { window.__authUser = data.user; gate.style.display = "none"; document.dispatchEvent(new CustomEvent("mf:auth", { detail: data.user })); }
+        else { gate.style.display = "flex"; userIn.focus(); }
+      }).catch(() => { gate.style.display = "flex"; userIn.focus(); });
+    })();
+    </script>
+    <!-- ── /Auth Gate ────────────────────────────────────────────────── -->
   </body>
 </html>

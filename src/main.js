@@ -1560,7 +1560,7 @@ if (versionEl) {
 }
 
 /** Default order for picking the active provider */
-const PROVIDER_ORDER = ["openai", "ollama", "ollama-kimi", "ollama-ds", "openrouter", "gemini-flash", "anthropic"];
+const PROVIDER_ORDER = ["openai", "ollama", "or-1", "or-2", "or-3", "gemini-flash", "anthropic"];
 
 /** LocalStorage key — value is JSON array of provider IDs enabled for AI opinion. */
 const AI_OPINION_PARTICIPANTS_KEY = "mf0.settings.aiOpinionParticipants";
@@ -1691,12 +1691,12 @@ const DIALOG_MODE_KEY_PREFIX = "mf0.dialog.mode.";
 const DIALOG_OR_MODEL_KEY_PREFIX = "mf0.dialog.ormodel.";
 
 /** The three OpenRouter slot IDs */
-const OR_SLOT_IDS_ALL = ["openrouter", "ollama-kimi", "ollama-ds"];
+const OR_SLOT_IDS_ALL = ["or-1", "or-2", "or-3"];
 
 /**
  * Save the selected model for an OR slot in a specific dialog.
  * @param {string} dialogId
- * @param {string} slotId   — "openrouter" | "ollama-kimi" | "ollama-ds"
+ * @param {string} slotId   — "or-3" | "or-1" | "or-2"
  * @param {string} modelId
  */
 function saveDialogOrModel(dialogId, slotId, modelId) {
@@ -1763,10 +1763,10 @@ function loadDialogMode(dialogId) {
 /** Web search mode: Gemini → Ollama → Claude → ChatGPT */
 const WEB_SEARCH_PROVIDER_PRIORITY = [
   "gemini-flash",
-  "openrouter",
   "ollama",
-  "ollama-kimi",
-  "ollama-ds",
+  "or-1",
+  "or-2",
+  "or-3",
   "anthropic",
   "openai",
 ];
@@ -1840,15 +1840,15 @@ function hasAtLeastTwoModelKeys() {
 }
 
 const AI_TALKS_HANDOFF_RE =
-  /HANDOFF:\s*(openai|anthropic|gemini-flash|ollama|ollama-kimi|ollama-ds|openrouter)\s*$/im;
+  /HANDOFF:\s*(openai|anthropic|gemini-flash|ollama|or-1|or-2|or-3)\s*$/im;
 const AI_TALKS_MAX_TURNS = 20;
 const AI_TALKS_ROUTING_GUIDE = [
   "- If the task needs creative ideation or non-obvious options -> HANDOFF: openai (ChatGPT).",
   "- If someone must check current web facts/sources -> HANDOFF: gemini-flash (Gemini).",
   "- If the team needs dry trade-off weighing / objective structure -> HANDOFF: ollama (Ollama).",
-  "- If the task benefits from Kimi reasoning -> HANDOFF: ollama-kimi (Kimi).",
-  "- If the task benefits from DeepSeek coding/analysis -> HANDOFF: ollama-ds (DeepSeek).",
-  "- If you need access to a wide variety of open-source models -> HANDOFF: openrouter (OpenRouter).",
+  "- If the task benefits from OR1 reasoning -> HANDOFF: or-1 (OpenRouter).",
+  "- If the task benefits from OR2 coding/analysis -> HANDOFF: or-2 (OpenRouter).",
+  "- If you need access to a wide variety of open-source models -> HANDOFF: or-3 (OpenRouter).",
   "- If you need critical evaluation, risk review, or quality judgment -> HANDOFF: anthropic (Claude).",
   "- Do not rotate models mechanically. Choose based on what is needed next to solve the user's task.",
 ].join("\n");
@@ -2053,9 +2053,9 @@ function buildAiTalksCritiqueUserPrompt(
 /** Deep research mode: Ollama → ChatGPT → Gemini → Claude */
 const DEEP_RESEARCH_PROVIDER_PRIORITY = [
   "ollama",
-  "ollama-kimi",
-  "ollama-ds",
-  "openrouter",
+  "or-1",
+  "or-2",
+  "or-3",
   "openai",
   "gemini-flash",
   "anthropic",
@@ -2162,7 +2162,7 @@ function activateProviderForImageCreation() {
 }
 
 /** In Create image mode, providers without image API are unavailable */
-const IMAGE_MODE_DISABLED_PROVIDERS = new Set(["ollama", "ollama-kimi", "ollama-ds", "openrouter", "anthropic"]);
+const IMAGE_MODE_DISABLED_PROVIDERS = new Set(["ollama", "or-1", "or-2", "or-3", "anthropic"]);
 
 function refreshModelBadges() {
   const wrap = document.getElementById("model-badges");
@@ -2243,8 +2243,8 @@ function initProviderBadges() {
     }
     const pid = t.getAttribute("data-provider");
 
-    // OpenRouter slots (openrouter, ollama-kimi, ollama-ds): show model picker
-    const OR_SLOTS = new Set(["openrouter", "ollama-kimi", "ollama-ds"]);
+    // OpenRouter slots (or-3, or-1, or-2): show model picker
+    const OR_SLOTS = new Set(["or-1", "or-2", "or-3"]);
     if (OR_SLOTS.has(pid) && openRouterEntries.length > 0) {
       if (t.classList.contains("active")) {
         showOpenRouterPicker(t, pid);
@@ -3734,11 +3734,11 @@ function initAttachMenu() {
  * Update the OpenRouter badge text to show the selected model's short name.
  */
 function updateOpenRouterBadgeLabel() {
-  // Update all three OR slots: openrouter, ollama-kimi, ollama-ds
-  const slotDefaults = {
-    "openrouter": "OpenRouter",
-    "ollama-kimi": "OR Slot 2",
-    "ollama-ds":   "OR Slot 3",
+  // Update all three OR slots: or-3, or-1, or-2
+  const slotDefaults = {   
+    "or-1": "OR Slot 1",
+    "or-2":   "OR Slot 2", 
+	"or-3": "OR Slot 3",
   };
   for (const [slotId, fallback] of Object.entries(slotDefaults)) {
     // Use per-dialog model if a dialog is open, otherwise global
@@ -3762,7 +3762,7 @@ function updateOpenRouterBadgeLabel() {
  * Show model picker dropdown anchored below anchorBtn.
  * @param {HTMLElement} anchorBtn
  */
-function showOpenRouterPicker(anchorBtn, slotId = "openrouter") {
+function showOpenRouterPicker(anchorBtn, slotId = "or-1") {
   document.getElementById("openrouter-picker")?.remove();
   if (!openRouterEntries.length) return;
 
@@ -6452,6 +6452,26 @@ async function buildChatOptsForModelRequest(p) {
             });
             memoryTreeSupplement = String(mtRes?.supplement ?? "");
             memoryTreeRouterAnalytics = mtRes?.memoryTreeRouterAnalytics ?? null;
+            // ── Router diagnostics → activity log ──────────────────────────
+            const _rd = mtRes?.routerDiag;
+            if (_rd) {
+              const semPart = _rd.semanticNew > 0
+                ? ` · semantic+${_rd.semanticNew}`
+                : " · semantic=0";
+              appendActivityLog(
+                `[memRouter] nodes=${_rd.totalNodes} · lexical=${_rd.lexicalCount}${semPart}` +
+                ` · pool=${_rd.rerankPool} → selected=${_rd.selected}`,
+              );
+              if (_rd.semanticWinners.length > 0) {
+                appendActivityLog(
+                  `[memRouter] semantic winners: ${_rd.semanticWinners.join(", ")}`,
+                );
+              }
+              if (_rd.rationale) {
+                appendActivityLog(`[memRouter] rationale: ${_rd.rationale}`);
+              }
+            }
+            // ── End router diagnostics ──────────────────────────────────────
           } catch (rErr) {
             appendActivityLog(
               `Memory tree router: ${rErr instanceof Error ? rErr.message : String(rErr)}`,
@@ -7077,7 +7097,7 @@ function initChatComposer() {
             const speakerKey = String(keysNow[pid] ?? "").trim();
             if (!speakerKey) continue;
             // For OpenRouter slots: show the selected model's short name
-            const OR_SLOT_IDS = new Set(["openrouter", "ollama-kimi", "ollama-ds"]);
+            const OR_SLOT_IDS = new Set(["or-1", "or-2", "or-3"]);
             const speakerLabel = OR_SLOT_IDS.has(pid)
               ? (openRouterEntries.find((e) => e.id === getUserAiModel(pid, "dialogue"))?.shortName
                 ?? PROVIDER_DISPLAY[pid] ?? pid)

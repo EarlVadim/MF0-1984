@@ -222,7 +222,7 @@ export async function deleteTheme(themeId) {
 
   /** Old API build without POST /api/themes/delete returns 404 { error: "Not found" }. */
   function shouldTryDeleteFallback(res, data) {
-    return res.status === 404 && (!data || data.error === "Not found");
+    return res.status === 404 && (!data || data.error === "Not found (chatPersistence.js)");
   }
 
   let res = await fetch(apiUrl("api/themes/delete"), {

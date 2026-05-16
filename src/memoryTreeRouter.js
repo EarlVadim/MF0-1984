@@ -5,6 +5,7 @@
  */
 
 import { callLlm, usageWithFallback } from "./llmGateway.js";
+import { semanticCandidateIdsFromGraph } from "./memoryGraphSemanticSearch.js";
 
 /** First line of the supplement user message — must match fitContextToBudget detection. */
 export const MF0_MEMORY_TREE_SUPPLEMENT_PREFIX =
@@ -15,9 +16,9 @@ const ROUTER_MODEL = {
   anthropic: "claude-3-5-haiku-20241022",
   "gemini-flash": "gemini-2.0-flash",
   ollama:        "gemma4:31b-cloud",
-  "ollama-kimi": "kimi-k2.6:cloud",
-  "ollama-ds":   "deepseek-v4-pro:cloud",
-  openrouter:    "meta-llama/llama-3.3-70b-instruct:free",
+  "or-1": "deepseek/deepseek-v4-flash",
+  "or-2":   "deepseek/deepseek-v4-flash",
+  "or-3":    "deepseek/deepseek-v4-flash",
 };
 
 /** LLM rerank: same contract shape as Cyprus Discovery `MEMORY_ROUTE_RERANK_INSTRUCTION`. */
@@ -292,7 +293,7 @@ export function serializeMemoryGraphForRouter(graph, userQuery, opts = {}) {
 function pickRouterKey(allKeys, analysisPriority, activeProviderId, activeApiKey) {
   const preferred = Array.isArray(analysisPriority)
     ? analysisPriority
-    : ["openai", "anthropic", "gemini-flash", "ollama", "ollama-kimi", "ollama-ds", "openrouter"];
+    : ["openai", "anthropic", "gemini-flash", "ollama", "or-1", "or-2", "or-3"];
   for (const pid of preferred) {
     const key = String(allKeys?.[pid] ?? "").trim();
     if (key) return { providerId: pid, key };
@@ -324,7 +325,7 @@ async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutToke
     system: systemPrompt,
     temperature: 0.12,
     maxTokens: maxOutTokens,
-    disableSearch: ["ollama", "ollama-kimi", "ollama-ds", "openrouter"].includes(providerId),
+    disableSearch: ["ollama", "or-1", "or-2", "or-3"].includes(providerId),
     requestKind: null,
     promptBasis: `${systemPrompt}\n\n${ub}`,
   });
@@ -504,7 +505,7 @@ function expandOneGraphHop(ids, byId, links) {
  * @param {Map<string, unknown>} byId
  * @param {unknown[]} links
  */
-function fullyExpandHubNeighbors(ids, byId, links) {
+function fullyExpandHubNeighbors(ids, byId, links, hardCap = 60) {
   const adj = buildAdjacency(links);
   const out = new Set(ids.filter((id) => byId.has(id)));
   const degMin = 2;
@@ -512,13 +513,16 @@ function fullyExpandHubNeighbors(ids, byId, links) {
   let changed = true;
   while (changed) {
     changed = false;
+    if (out.size >= hardCap) break;
     for (const id of [...out]) {
+      if (out.size >= hardCap) break;
       const deg = Number(adj.get(id)?.size || 0);
       if (deg < degMin || deg > degMax) continue;
       for (const nb of adj.get(id) ?? []) {
         if (!byId.has(nb) || out.has(nb)) continue;
         out.add(nb);
         changed = true;
+        if (out.size >= hardCap) break;
       }
     }
   }
@@ -663,9 +667,10 @@ function buildDeterministicSupplement(byId, rows, links, userQuery) {
   }
 
   const oneHop = [...new Set(expandOneGraphHop(ids, byId, links))];
-  ids = fullyExpandHubNeighbors(oneHop, byId, links);
-  if (ids.length > 96) {
-    ids = capExpandedWithAnchors(ids, oneHop, byId, links, 96);
+  const detCap = Math.min(40, Math.max(ids.length * 3, 20));
+  ids = fullyExpandHubNeighbors(oneHop, byId, links, detCap);
+  if (ids.length > detCap) {
+    ids = capExpandedWithAnchors(ids, oneHop, byId, links, detCap);
   }
 
   return buildSupplementFromNodes(
@@ -821,6 +826,35 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   const entitySignals = [...new Set(subqueries.flatMap((q) => extractEntitySignals(q)))];
   const { lexicalTop, entityTop, scoreById } = retrieveLexicalAndEntity(rows, queryTerms, entitySignals);
 
+  // ── Layer 1.5: semantic candidates via pplx-embed-v1-4b ──────────────────
+  // Run BEFORE small-graph full-expansion so semantic scores can influence
+  // pool ordering even when all nodes are already in expandedIds.
+  /** @type {Map<string, number>} node id → cosine similarity rank (topK … 1, higher = better) */
+  const semanticScoreById = new Map();
+  /** @type {string[]} ids that came ONLY from semantic layer (not in lexical/titleScan yet) */
+  const semanticOnlyIds = [];
+  try {
+    const orKey = String(
+      args.allKeys?.["or-1"] || args.allKeys?.["or-2"] || args.allKeys?.["or-3"] || ""
+    ).trim();
+    if (orKey) {
+      const semanticIds = await semanticCandidateIdsFromGraph(
+        userQuery,
+        rawNodes,
+        orKey,
+        20,
+      );
+      // Assign rank-based scores: top result gets score = topK, last gets 1
+      const n = semanticIds.length;
+      semanticIds.forEach((id, idx) => {
+        semanticScoreById.set(id, n - idx);
+      });
+    }
+  } catch {
+    // non-critical — lexical+LLM path continues
+  }
+  // ── End Layer 1.5 pre-pass ────────────────────────────────────────────────
+
   /** Small graphs: scan every node. Large graphs: lexical/entity seeds + 1-hop neighbors (Cyprus-style). */
   /** @type {Set<string>} */
   let expandedIds;
@@ -856,8 +890,21 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
     /* fall through to deterministic behavior below if rerank also fails */
   }
   for (const id of titleScan.ids) expandedIds.add(id);
+  const sizeAfterLexAndTitle = expandedIds.size;
 
-  /** @type {{ id: string, category: string, label: string, blobExcerpt: string, lexicalScore: number }[]} */
+  // ── Layer 1.5 post-pass: register semantic-only newcomers & boost expandedIds ─
+  // semanticScoreById is already filled above.
+  // Now add any semantic candidates not yet in expandedIds (large graphs mainly),
+  // and record which ones are genuinely new (not found by lexical/title).
+  for (const [id] of semanticScoreById) {
+    if (!expandedIds.has(id) && byId.has(id)) {
+      expandedIds.add(id);
+      semanticOnlyIds.push(id);
+    }
+  }
+  // ── End Layer 1.5 ────────────────────────────────────────────────────────
+
+  /** @type {{ id: string, category: string, label: string, blobExcerpt: string, lexicalScore: number, semanticScore: number }[]} */
   let poolFull = [...expandedIds]
     .map((id) => {
       const n = byId.get(id);
@@ -869,13 +916,18 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
         label: String(/** @type {{ label?: string }} */ (n).label ?? "").trim().slice(0, 220),
         blobExcerpt: blobFull.slice(0, BLOB_EXCERPT_RERANK),
         lexicalScore: Number(scoreById.get(id) || 0),
+        semanticScore: Number(semanticScoreById.get(id) || 0),
       };
     })
     .filter(Boolean);
 
   poolFull.sort((a, b) => {
-    const dLex = Number(b.lexicalScore) - Number(a.lexicalScore);
-    if (dLex !== 0) return dLex;
+    // Combined score: lexical is primary signal; semantic breaks ties and boosts
+    // nodes the embedding model ranked highly even when lexical scores are equal.
+    const aCombined = a.lexicalScore * 100 + a.semanticScore;
+    const bCombined = b.lexicalScore * 100 + b.semanticScore;
+    const dCombined = bCombined - aCombined;
+    if (dCombined !== 0) return dCombined;
     const dBlob = String(b.blobExcerpt ?? "").length - String(a.blobExcerpt ?? "").length;
     if (dBlob !== 0) return dBlob;
     return `${a.category}/${a.label}`.localeCompare(`${b.category}/${b.label}`, undefined, { sensitivity: "base" });
@@ -955,9 +1007,10 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
     return { supplement: "", memoryTreeRouterAnalytics: analyticsAfterRerank };
   }
   const oneHopValid = [...new Set(expandOneGraphHop(validIds, byId, links))];
-  validIds = fullyExpandHubNeighbors(oneHopValid, byId, links);
-  if (validIds.length > 96) {
-    validIds = capExpandedWithAnchors(validIds, oneHopValid, byId, links, 96);
+  const expandCap = Math.min(48, Math.max(validIds.length * 3, 20));
+  validIds = fullyExpandHubNeighbors(oneHopValid, byId, links, expandCap);
+  if (validIds.length > expandCap) {
+    validIds = capExpandedWithAnchors(validIds, oneHopValid, byId, links, expandCap);
   }
 
   let supplement = buildSupplementFromNodes(byId, validIds, rationale);
@@ -976,9 +1029,30 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
     String(rawText ?? ""),
   );
 
+  // ── Diagnostics payload ───────────────────────────────────────────────────
+  /** Final rerank picks that came exclusively from the semantic layer. */
+  const semanticWinners = validIds.filter((id) => semanticScoreById.has(id));
+  /** @type {import("./memoryTreeRouter.js").RouterDiag} */
+  const routerDiag = {
+    totalNodes:    rows.length,
+    lexicalCount:  sizeAfterLexAndTitle,
+    // semanticNew: how many nodes got a semantic score (boosted in pool sorting).
+    // On small graphs this will be > 0 even though all nodes were already in expandedIds.
+    semanticNew:   semanticScoreById.size,
+    rerankPool:    poolForJson.length,
+    selected:      validIds.length,
+    semanticWinners: semanticWinners.map((id) => {
+      const n = byId.get(id);
+      if (!n || typeof n !== "object") return id;
+      return `${String(n.category ?? "").trim()} / ${String(n.label ?? "").trim()}`;
+    }),
+    rationale: rationale.slice(0, 300),
+  };
+  // ── End diagnostics ───────────────────────────────────────────────────────
+
   if (rows.length <= GRAPH_APPEND_TITLE_INDEX_MAX_NODES) {
     const idx = buildAllNodeTitleIndex(rows, 14_000);
     supplement = [supplement, idx].filter(Boolean).join("\n\n").trim();
   }
-  return { supplement, memoryTreeRouterAnalytics };
+  return { supplement, memoryTreeRouterAnalytics, routerDiag };
 }
