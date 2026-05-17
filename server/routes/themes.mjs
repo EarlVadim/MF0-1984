@@ -159,8 +159,37 @@ router.post(["/themes/rename", "/theme-rename"], (req, res) => {
 router.get("/dialogs/:dialogId/turns", async (req, res) => {
   const dialogId = req.params.dialogId;
   if (!dialogId) return res.status(400).json({ ok: false, error: "Missing dialog id" });
-  if (!db.prepare(`SELECT id FROM dialogs WHERE id = ?`).get(dialogId)) return res.status(404).json({ ok: false, error: "Dialog not found" });
-  res.json({ turns: await listTurns(dialogId) });
+  const drow = db.prepare(`SELECT id, or_models_json FROM dialogs WHERE id = ?`).get(dialogId);
+  if (!drow) return res.status(404).json({ ok: false, error: "Dialog not found" });
+  const orModels = (() => {
+    try { return drow.or_models_json ? JSON.parse(drow.or_models_json) : {}; } catch { return {}; }
+  })();
+  res.json({ turns: await listTurns(dialogId), orModels });
+});
+
+// PATCH /api/dialogs/:dialogId/or-models  { "or-1": "...", "or-2": "...", "or-3": "..." }
+router.patch("/dialogs/:dialogId/or-models", (req, res) => {
+  const dialogId = String(req.params.dialogId ?? "").trim();
+  if (!dialogId) return res.status(400).json({ ok: false, error: "Missing dialog id" });
+  const drow = db.prepare(`SELECT id FROM dialogs WHERE id = ?`).get(dialogId);
+  if (!drow) return res.status(404).json({ ok: false, error: "Dialog not found" });
+  const body = req.body ?? {};
+  const allowed = ["or-1", "or-2", "or-3"];
+  const current = (() => {
+    try {
+      const r = db.prepare(`SELECT or_models_json FROM dialogs WHERE id = ?`).get(dialogId);
+      return r?.or_models_json ? JSON.parse(r.or_models_json) : {};
+    } catch { return {}; }
+  })();
+  for (const slot of allowed) {
+    if (body[slot] !== undefined) {
+      const v = String(body[slot] ?? "").trim();
+      if (v) current[slot] = v; else delete current[slot];
+    }
+  }
+  db.prepare(`UPDATE dialogs SET or_models_json = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(JSON.stringify(current), dialogId);
+  res.json({ ok: true, orModels: current });
 });
 
 router.get("/dialogs/:dialogId/context-pack", async (req, res) => {
@@ -211,7 +240,10 @@ router.post("/dialogs/:dialogId/turns", async (req, res) => {
   const respondingModelId    = body.responding_model_id    != null ? String(body.responding_model_id).trim() || null : null;
   let requestType = String(body.request_type ?? "default");
   let userMessageAt = String(body.user_message_at ?? "");
-  const assistantMessageAt = body.assistant_message_at != null ? String(body.assistant_message_at) : null;
+  // If assistant_text is provided but no timestamp — use server time so WebUI can show it
+  const assistantMessageAt = body.assistant_message_at != null
+    ? String(body.assistant_message_at)
+    : (body.assistant_text != null ? new Date().toISOString() : null);
   const assistantError = body.assistant_error === 1 || body.assistant_error === true ? 1 : 0;
 
   const optNonNegInt = (v) => {

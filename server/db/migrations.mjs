@@ -37,6 +37,7 @@ const migration010 = path.join(root, "db", "migrations", "010_llm_token_usage.sq
 const migration011 = path.join(root, "db", "migrations", "011_analytics_aux_llm_usage.sql");
 const migration012 = path.join(root, "db", "migrations", "012_memory_graph_embeddings.sql");
 const migration013 = path.join(root, "db", "migrations", "013_users.sql");
+const migration014 = path.join(root, "db", "migrations", "014_dialog_or_models.sql");
 
 function estimateTokensFromText(text) {
   const s = String(text ?? "").trim();
@@ -385,6 +386,12 @@ export function createDatabase(filePath) {
   // 013: users + sessions tables (auth)
   if (fs.existsSync(migration013)) {
     database.exec(fs.readFileSync(migration013, "utf8"));
+  }
+  if (fs.existsSync(migration014)) {
+    try { database.exec(fs.readFileSync(migration014, "utf8")); } catch (e) {
+      // Column may already exist if DB was manually altered
+      if (!String(e?.message).includes("duplicate column")) throw e;
+    }
   }
   return database;
 }

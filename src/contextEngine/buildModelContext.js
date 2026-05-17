@@ -188,7 +188,7 @@ export function buildModelContext(input) {
 
   const flat = flattenHistoryMessages(pack);
   const recentN = Number(modelFlags?.recentMessageCount);
-  const recentCount = Number.isFinite(recentN) && recentN > 0 ? Math.min(24, Math.max(6, recentN)) : 10;
+  const recentCount = Number.isFinite(recentN) && recentN > 0 ? Math.min(60, Math.max(6, recentN)) : 16;
   const recentSlice = flat.slice(-recentCount);
   const olderForRetrieval = flat.slice(0, Math.max(0, flat.length - recentSlice.length));
 

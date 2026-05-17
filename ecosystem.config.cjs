@@ -31,5 +31,17 @@ module.exports = {
       watch: [path.join(root, "vite.config.js")],
       ignore_watch: ["node_modules", "data", "dist", ".git", ".mf-dev"],
     },
+	{
+      name: "mf-lab-https",
+      script: path.join(root, "server/https-proxy.mjs"),
+      cwd: root,
+      interpreter: "node",
+      node_args: "--env-file=.env",
+      autorestart: true,
+      max_restarts: 15,
+      min_uptime: "4s",
+      watch: false,
+    },
   ],
 };
+

@@ -8,7 +8,7 @@ This fork extends the original with **Ollama** and **OpenRouter** support, per-d
 |---|---|
 | **UI dev server** | Vite — default port **1984** (`vite.config.js`) |
 | **Local API** | Node + `better-sqlite3` — default port **35184** (`API_PORT`) |
-| **Version** | **1.10.01** |
+| **Version** | **1.10.02** |
 | **Upstream** | [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984) |
 
 For architecture, data model, and operations see **[HANDOFF.md](./HANDOFF.md)**.
@@ -191,11 +191,11 @@ The active model is selected in **Settings → AI → Gemma4**.
 
 Three provider slots route through the OpenRouter API, each with its own independently selected model:
 
-| Button label | Provider ID | localStorage key |
+| Button label | Provider ID | Storage |
 |---|---|---|
-| model short name | `openrouter` (OR Slot 1) | `mf0.settings.aiModel.openrouter.dialogue` |
-| model short name | `ollama-kimi` (OR Slot 2) | `mf0.settings.aiModel.ollama-kimi.dialogue` |
-| model short name | `ollama-ds` (OR Slot 3) | `mf0.settings.aiModel.ollama-ds.dialogue` |
+| model short name | `or-1` (OR Slot 1) | server DB + localStorage fallback |
+| model short name | `or-2` (OR Slot 2) | server DB + localStorage fallback |
+| model short name | `or-3` (OR Slot 3) | server DB + localStorage fallback |
 
 All three slots share the same `OPENROUTER_API_KEY`. Each slot's **selected model is saved per-dialog** — switching dialogs restores the model that was active in that dialog.
 
@@ -226,13 +226,55 @@ Click an OR slot button to activate it — the model picker opens automatically.
 
 The following settings are saved **per dialog** and restored when you switch back:
 
-| What | Storage key pattern |
+| What | Where stored |
 |---|---|
-| Active provider (Gemini, Ollama, OR Slot…) | `mf0.dialog.<dialogId>.provider` |
-| Chat mode (default / AI opinion) | `mf0.dialog.mode.<dialogId>` |
-| OR Slot 1 model | `mf0.dialog.ormodel.<dialogId>.openrouter` |
-| OR Slot 2 model | `mf0.dialog.ormodel.<dialogId>.ollama-kimi` |
-| OR Slot 3 model | `mf0.dialog.ormodel.<dialogId>.ollama-ds` |
+| Active provider (Gemini, Ollama, OR Slot…) | `localStorage` — `mf0.dialog.<dialogId>.provider` |
+| Chat mode (default / AI opinion) | `localStorage` — `mf0.dialog.mode.<dialogId>` |
+| OR Slot 1 model | **SQLite** `dialogs.or_models_json` → `{"or-1": "..."}` |
+| OR Slot 2 model | **SQLite** `dialogs.or_models_json` → `{"or-2": "..."}` |
+| OR Slot 3 model | **SQLite** `dialogs.or_models_json` → `{"or-3": "..."}` |
+
+OR slot models are written to the server immediately on selection (`PATCH /api/dialogs/:id/or-models`) and restored from the server when the dialog is opened — so they survive clearing `localStorage`, switching browsers, or accessing the app from another device.
+
+---
+
+
+## Context budget (per-provider)
+
+Context window limits and history depth are configured in **`src/modelContextConfig.js`** — one entry per provider. No rebuild needed if you edit the file during `npm run dev` (Vite hot-reloads it).
+
+```js
+// src/modelContextConfig.js
+export const MODEL_CONTEXT_CONFIG = {
+  "or-1":         { maxInputTokens: 200_000, recentMessageCount: 24 },
+  "or-2":         { maxInputTokens: 200_000, recentMessageCount: 24 },
+  "or-3":         { maxInputTokens: 180_000, recentMessageCount: 24 },  // 256 k model
+  "gemini-flash": { maxInputTokens: 200_000, recentMessageCount: 24 },
+  "openai":       { maxInputTokens: 100_000, recentMessageCount: 20 },
+  "anthropic":    { maxInputTokens: 150_000, recentMessageCount: 24 },
+  "ollama":       { maxInputTokens:  24_000, recentMessageCount: 12 },
+  "default":      { maxInputTokens:  64_000, recentMessageCount: 16 },
+};
+```
+
+| Field | Meaning |
+|---|---|
+| `maxInputTokens` | Hard token budget for the full request (messages + system prompt). Set to ~70–80 % of the model's real context window to leave room for the answer and system blocks. |
+| `recentMessageCount` | How many of the most recent turns are included verbatim. Older turns go through the RAG/retrieval pipeline. Range: 6–60. |
+
+---
+
+## Reply timestamps
+
+Every assistant bubble shows the reply time at the end of the `Replied:` line (UTC+3):
+
+```
+Replied: OR Slot 1 · DS Flash  17.05 14:23
+```
+
+The timestamp is recorded **when the response is received** and stored in `el.dataset.repliedAt` (sourced from `conversation_turns.assistant_message_at` in the DB). It does not change when you reload or switch dialogs.
+
+Turns created via the external API (`POST /api/dialogs/:id/turns`) receive a server-side timestamp automatically if the caller does not supply `assistant_message_at`.
 
 ---
 
@@ -306,6 +348,7 @@ Restarting the server reloads prices from the file (cache is in-process only).
 | `src/memoryGraphSemanticSearch.js` | Browser-side embedding + cosine similarity for semantic layer |
 | `src/localFsTools.js` | Client-side tool call parser and executor |
 | `src/userChatModels.js` | Model selection storage (global + per-dialog) |
+| `src/modelContextConfig.js` | Per-provider context budget (`maxInputTokens`, `recentMessageCount`) |
 | `openrouter-models.txt` | OpenRouter model list with prices and short names |
 | `server/api.mjs` | Express bootstrap — loads OR prices at startup |
 | `server/https-proxy.mjs` | Standalone HTTPS reverse proxy with auto self-signed cert |
@@ -333,7 +376,7 @@ Restarting the server reloads prices from the file (cache is in-process only).
 | Button height | Default | ×1.5 vertical padding |
 | File system access | — | LocalFS sandbox (7 tools, works with any model) |
 | AI opinion participants | All providers | Configurable checkboxes in Settings |
-| Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot |
+| Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot (persisted in DB) |
 | OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.txt` |
 | Memory retrieval | Lexical + LLM rerank | + Semantic layer (pplx-embed-v1-4b, cosine, pool boosting) |
 | Authentication | — | Login/password, session cookies, admin/user roles |

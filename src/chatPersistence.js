@@ -134,7 +134,24 @@ export async function fetchTurns(dialogId) {
   const res = await fetch(apiUrl(`api/dialogs/${encodeURIComponent(dialogId)}/turns`));
   if (!res.ok) throw new Error(`Turns ${res.status}`);
   const data = await res.json();
-  return data.turns ?? [];
+  return { turns: data.turns ?? [], orModels: data.orModels ?? {} };
+}
+
+/**
+ * Persist OR slot model selection for a specific dialog to the server.
+ * @param {string} dialogId
+ * @param {Record<string, string>} slotMap  e.g. { "or-1": "google/gemini-pro" }
+ */
+export async function saveDialogOrModels(dialogId, slotMap) {
+  const did = String(dialogId ?? "").trim();
+  if (!did) return;
+  try {
+    await fetch(apiUrl(`api/dialogs/${encodeURIComponent(did)}/or-models`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(slotMap),
+    });
+  } catch { /* non-critical */ }
 }
 
 /**

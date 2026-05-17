@@ -4,6 +4,245 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.10.02)
+
+### Per-provider context budget — `src/modelContextConfig.js`
+
+Context window size and history depth are now configured per-provider in a dedicated file instead of hard-coded constants.
+
+**Before:**
+```js
+// main.js
+const MF0_MAX_CONTEXT_INPUT_TOKENS = 64000;  // constant for all providers
+modelFlags: { recentMessageCount: 10 }        // constant for all providers
+```
+
+**After:**
+```js
+// src/modelContextConfig.js
+export const MODEL_CONTEXT_CONFIG = {
+  "or-1":         { maxInputTokens: 200_000, recentMessageCount: 24 },
+  "or-2":         { maxInputTokens: 200_000, recentMessageCount: 24 },
+  "or-3":         { maxInputTokens: 180_000, recentMessageCount: 24 },
+  "gemini-flash": { maxInputTokens: 200_000, recentMessageCount: 24 },
+  "openai":       { maxInputTokens: 100_000, recentMessageCount: 20 },
+  "anthropic":    { maxInputTokens: 150_000, recentMessageCount: 24 },
+  "ollama":       { maxInputTokens:  24_000, recentMessageCount: 12 },
+  "default":      { maxInputTokens:  64_000, recentMessageCount: 16 },
+};
+```
+
+`getModelContextConfig(providerId)` called in `main.js` before each send; result passed to `buildModelContext` and `fitContextToBudget`.
+
+**`src/contextEngine/buildModelContext.js`** — `recentMessageCount` clamp raised from `[6, 24]` to `[6, 60]` to allow the new higher values to take effect.
+
+**Files changed:** `src/modelContextConfig.js` (new), `src/main.js`, `src/contextEngine/buildModelContext.js`.
+
+### Per-dialog OR slot model persistence moved to server DB
+
+**Before:** OR slot model selection per dialog stored only in `localStorage` (`mf0.dialog.ormodel.<dialogId>.<slotId>`). Lost on `localStorage` clear, not portable across devices.
+
+**After:** also stored in `dialogs.or_models_json` (SQLite column, migration 014).
+
+**Migration 014** (`db/migrations/014_dialog_or_models.sql`):
+```sql
+ALTER TABLE dialogs ADD COLUMN or_models_json TEXT;
+-- {"or-1": "google/gemini-pro", "or-2": "...", "or-3": "..."}
+```
+
+**New API endpoint:**
+```
+PATCH /api/dialogs/:dialogId/or-models
+Body: { "or-1": "model-id", "or-2": "model-id", "or-3": "model-id" }
+```
+Partial updates supported — only keys present in the body are updated. Missing or empty-string values delete the slot entry.
+
+**`GET /api/dialogs/:dialogId/turns`** response extended:
+```json
+{ "turns": [...], "orModels": { "or-1": "...", "or-2": "...", "or-3": "..." } }
+```
+
+**`src/chatPersistence.js`** changes:
+- `fetchTurns()` now returns `{ turns, orModels }` instead of just `turns[]`
+- New `saveDialogOrModels(dialogId, slotMap)` — `PATCH` call, non-critical (catch swallowed)
+
+**`src/main.js`** changes:
+- `saveDialogOrModels` imported from `chatPersistence.js`
+- `serverOrModels` declared with `let` **before** the `try` block so it is visible in the `requestAnimationFrame` closure that restores model labels on dialog open
+- On dialog open: server value used first, `localStorage` as fallback; server value mirrored to `localStorage` for offline use
+- On model selection in picker: `saveDialogOrModels()` called immediately alongside `saveDialogOrModel()` (localStorage)
+
+**Bug fixed:** `serverOrModels` was originally declared with `const` inside `try {}` — the `requestAnimationFrame` closure outside `try` could not see it, so badge labels were never updated on dialog switch. Fixed by hoisting to `let` before `try`.
+
+**Files changed:** `db/migrations/014_dialog_or_models.sql` (new), `server/db/migrations.mjs`, `server/routes/themes.mjs`, `src/chatPersistence.js`, `src/main.js`.
+
+### Reply timestamps
+
+Every assistant bubble shows the reply time at the end of the `Replied:` line (UTC+3):
+```
+Replied: OR Slot 1 · DS Flash  17.05 14:23
+```
+
+**Implementation (`src/main.js`):**
+- `replyTimeLabel(el)` — reads `el.dataset.repliedAt` (Unix ms); if absent stamps `Date.now()` and stores it
+- `appendAssistantBubbleFromTurn()` — parses `t.assistant_message_at` from DB → stores as `el.dataset.repliedAt` so each bubble shows its own original time, not the time the dialog was loaded
+- UTC offset: `+10_800_000` ms (UTC+3)
+
+**API turns fix (`server/routes/themes.mjs`):**
+- `POST /api/dialogs/:id/turns` — if caller omits `assistant_message_at` but provides `assistant_text`, server auto-fills `new Date().toISOString()`; previously these turns always showed the dialog-open time in WebUI
+
+### Version bump
+
+- `package.json` → **1.10.02**
+
+
+---
+
+## Release notes (1.10.01)
+
+### Ollama → OpenRouter: three independent provider slots (or-1 / or-2 / or-3)
+
+The fourth provider was changed from Perplexity to **Ollama** in an earlier fork version. In 1.10.01 the Ollama-based provider slots were refactored into **three OpenRouter slots** with unified provider IDs `or-1`, `or-2`, `or-3`. All three share one `OPENROUTER_API_KEY`.
+
+**Provider ID changes:**
+
+| Old ID (≤ 1.9.x) | New ID (1.10.01+) | Display |
+|---|---|---|
+| `openrouter` | `or-1` | OR Slot 1 |
+| `ollama-kimi` | `or-2` | OR Slot 2 |
+| `ollama-ds` | `or-3` | OR Slot 3 |
+
+**Files changed:**
+
+- `src/settingsModelsUi.js` — provider table updated to `or-1 / or-2 / or-3`
+- `src/chatAnalysisPriority.js` — default priority list updated
+- `server/routes/settings.mjs` — `configured-providers` endpoint now returns `{ "or-1": bool, "or-2": bool, "or-3": bool }` (was `{ openrouter: bool, ... }`)
+- `src/modelEnv.js` — reads `cfg["or-1"]` / `cfg["or-2"]` / `cfg["or-3"]` (was `cfg.openrouter`); mismatch between server response key and client lookup key was the root bug causing all three slots to appear grey
+
+### OR slot model picker — dropdown positioning fix
+
+The model picker dropdown was rendering at the bottom of the page as a block element instead of floating anchored to the button. Root cause: `.or-3-picker` CSS class was used in JS but the stylesheet only defined `.openrouter-picker`. Fixed by aligning JS class names to the existing CSS (`.openrouter-picker`, `.openrouter-picker-item`, `.openrouter-picker-name`, `.openrouter-picker-id`).
+
+### LocalFS sandbox
+
+New feature: any model can read and write files inside a configured sandbox directory using plain-text tool calls in its reply.
+
+**New files:**
+
+| File | Role |
+|---|---|
+| `server/routes/localfs.mjs` | REST API for file operations, path sandboxing |
+| `src/localFsTools.js` | `<tool>…</tool>` parser, tool executor, composer badge wiring |
+
+**Tool set:** `list_files`, `read_file`, `read_lines`, `grep_file`, `write_file`, `patch_file`, `delete_file`.
+
+**Environment variables added:**
+```
+LOCALFS_ENABLED=true
+LOCALFS_ROOT=/path/to/workspace
+```
+
+Mutually exclusive with AI opinion mode.
+
+### Semantic memory search — Layer 1.5
+
+The memory tree retrieval pipeline gains a semantic embedding layer between lexical matching and LLM rerank:
+
+1. Embeddings computed via `perplexity/pplx-embed-v1-4b` (OpenRouter) on every memory ingest
+2. Stored in `memory_graph_node_embeddings` (migration 012)
+3. Cosine similarity used to boost pool ordering before rerank
+
+**New files:**
+
+| File | Role |
+|---|---|
+| `server/services/memoryGraphEmbeddings.mjs` | Server-side embedding ingest + cosine search |
+| `src/memoryGraphSemanticSearch.js` | Browser-side embedding + similarity for router |
+
+Backfill existing nodes: `POST /api/memory-graph/reindex`.  
+Requires `OPENROUTER_API_KEY`.
+
+### Interests reconnect optimizer
+
+Fourth optimizer action added to Settings → Memory tree optimization:
+
+| Button | LLM | What |
+|---|---|---|
+| Interests reconnect | No | Re-links orphaned Interests-category nodes to the hub; merges normalized-label duplicates |
+
+Implemented in `src/memoryOptimizer.js` (`buildInterestsOrphanReconnectPayload`). Analytics: deterministic, no aux row emitted.
+
+### Per-model analytics and `openrouter-models.txt`
+
+- `openrouter-models.txt` in project root defines the model list for all three OR slots with pricing
+- Format: `model_id | input_$/1M | output_$/1M | short_name`
+- `responding_model_id` column in `conversation_turns` (migration 011) records the exact model per turn
+- Analytics cost calculation uses per-model prices from the file
+- File is read at API startup and on `GET /api/settings/openrouter-models`; no rebuild required on edit
+
+### Login / password authentication
+
+Full session-based auth system added.
+
+**New files:**
+
+| File | Role |
+|---|---|
+| `server/db/auth.mjs` | User + session CRUD. Password: SHA-512 + 100k iterations + 16-byte random salt |
+| `server/middleware/auth.mjs` | `attachSession` (global), `requireAuth`, cookie helpers (`mf_session`, `HttpOnly`, `SameSite=Strict`, 30-day lifetime) |
+| `server/routes/auth.mjs` | REST endpoints |
+| `db/migrations/013_users.sql` | `users` + `sessions` tables |
+
+**`server/api.mjs` changes:**
+- `import attachSession, authRouter`
+- `app.use(attachSession)` after `securityHeaders`
+- `app.use("/api", authRouter)` first among routers
+
+**Auth gate** injected into `index.html` as an inline `<script>`. Its SHA-256 hash must be listed in the CSP meta tag:
+```
+script-src 'self' 'sha256-WoDwLCeN20VPOypht6p8DQ2Pa8VqeUH9o6CjuRBWb5Q='
+```
+If the script body changes, recompute the hash.
+
+**First-run:** first `POST /api/auth/register` (empty `users` table) → admin account. Subsequent registrations require admin session or `ALLOW_REGISTRATION=true`.
+
+**API endpoints added:**
+
+| Method | Path | Auth |
+|---|---|---|
+| `POST` | `/api/auth/register` | Open (first) / Admin |
+| `POST` | `/api/auth/login` | — |
+| `POST` | `/api/auth/logout` | Yes |
+| `GET` | `/api/auth/me` | Yes |
+| `GET` | `/api/auth/users` | Admin |
+| `DELETE` | `/api/auth/users/:id` | Admin |
+
+**`server/db/auth.mjs` uses lazy adapter loading** — `adapter` is imported via `getAdapter()` on first use, not at module load time, to avoid top-level-await circular dependency with `migrations.mjs`.
+
+### HTTPS reverse proxy
+
+`server/https-proxy.mjs` — standalone Node process, TLS termination, forwards to Express.
+
+- Cert/key paths from `HTTPS_CERT` / `HTTPS_KEY` env vars (defaults: `certs/server.crt` / `certs/server.key`)
+- Auto-generates self-signed cert via `openssl req -x509` if files absent
+- `ecosystem.config.cjs` gains third PM2 app: `mf-lab-https`
+- `package.json` gains scripts: `https`, `dev:https`, `pm2:start`
+
+**New environment variables:**
+```
+HTTPS_PORT=4443
+HTTPS_CERT=certs/server.crt
+HTTPS_KEY=certs/server.key
+ALLOW_REGISTRATION=false
+```
+
+### Version bump
+
+- `package.json` → **1.10.01**
+
+
+---
+
 ## Release notes (1.9.28)
 
 ### Image files extracted from SQLite to disk
@@ -556,6 +795,15 @@ Settings → **Project Cache** no longer shows a single combined **“files & pi
 | `src/userChatModels.js` | Defaults and `localStorage` keys under `mf0.settings.aiModel.*` (and legacy `mf0.settings.chatModel.*` for dialogue). |
 | `src/fetchRemoteModelLists.js` | Provider-specific “list models” HTTP calls from the browser (keys from `import.meta.env` in dev). |
 | `src/modelEnv.js` | Returns `"server-proxy"` placeholder for all provider keys — real keys live in `process.env` on the server. |
+| `src/modelContextConfig.js` | Per-provider context budget: `maxInputTokens` and `recentMessageCount`. Edit to tune context depth per slot. |
+| `src/localFsTools.js` | `<tool>…</tool>` parser and tool executor for LocalFS mode. |
+| `src/memoryGraphSemanticSearch.js` | Browser-side embedding + cosine similarity for memory router semantic layer. |
+| `server/routes/auth.mjs` | `/api/auth/*` endpoints: register, login, logout, me, user management. |
+| `server/routes/localfs.mjs` | LocalFS sandbox REST API, path traversal protection. |
+| `server/middleware/auth.mjs` | `attachSession` (global), `requireAuth`, session cookie helpers. |
+| `server/db/auth.mjs` | User + session CRUD, password hashing (SHA-512 + 100k iter + salt). Lazy adapter load. |
+| `server/https-proxy.mjs` | Standalone HTTPS reverse proxy, auto self-signed cert generation. |
+| `ecosystem.config.cjs` | PM2: `mf-lab-api`, `mf-lab-vite`, `mf-lab-https`. |
 | `server/api.mjs` | Thin Express 5 bootstrap (~65 lines): global middleware, router mounts, `app.listen`. |
 | `server/config.mjs` | `MAX_BODY_BYTES` (48 MiB default, `API_MAX_BODY_BYTES` override). |
 | `server/middleware/http.mjs` | `securityHeaders`, `notFound`, `errorHandler`. |
@@ -605,7 +853,14 @@ Settings → **Project Cache** no longer shows a single combined **“files & pi
 | `API_MAX_BODY_BYTES` | API process | Cap for JSON POST/PUT bodies (default 48 MiB, band-clamped). |
 | `API_PATH_PREFIX` | API + logs | When behind a reverse proxy that strips a prefix; router canonicalizes paths containing `/api/`. |
 | `ACCESS_DATA_DUMP_*` | Server modules | Allowlists / limits for live Access enrichment fetches (see `server/accessDataDump.mjs`). |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `PERPLEXITY_API_KEY`, `GEMINI_API_KEY` | API server (`process.env`) | Loaded via `--env-file=.env`. Used exclusively by `server/routes/llm.mjs`; never sent to the browser. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | API server (`process.env`) | Loaded via `--env-file=.env`. Used exclusively by `server/routes/llm.mjs`; never sent to the browser. |
+| `OPENROUTER_API_KEY` | API server | Shared by `or-1`, `or-2`, `or-3` slots and semantic embedding calls. |
+| `OPENROUTER_REFERER`, `OPENROUTER_APP_TITLE` | API server | Optional headers sent to OpenRouter API. |
+| `HTTPS_PORT` | https-proxy | TLS listen port (default 4443). |
+| `HTTPS_CERT`, `HTTPS_KEY` | https-proxy | Cert/key paths; auto-generated if absent. |
+| `ALLOW_REGISTRATION` | API server | `true` = open registration; default `false` (admin-only after first user). |
+| `LOCALFS_ENABLED` | API server | `true` to enable LocalFS sandbox. |
+| `LOCALFS_ROOT` | API server | Absolute path to sandbox root; all tool calls are restricted to this tree. |
 
 `.env` is **gitignored**. Project profile **import** can restore a captured `.env` payload into the working tree on the machine performing import (operator responsibility).
 
@@ -650,9 +905,12 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 - **Assistant favorites:** `GET/POST` variants under `/api/assistant-favorite(s)` and `/api/dialogs/assistant-favorite(s)` (legacy path compatibility)
 - **Themes / dialogs / turns:**  
   `GET /api/themes`, `POST /api/themes/bootstrap`, `POST /api/themes/new-dialog`, `POST /api/themes/delete`, `POST /api/themes/rename`,  
-  `GET /api/dialogs/<id>/turns`, `POST /api/dialogs/<id>/turns` (+ clone / archive behaviors where implemented)
+  `GET /api/dialogs/<id>/turns` (returns `{ turns, orModels }` since 1.10.02), `POST /api/dialogs/<id>/turns`,
+  `PATCH /api/dialogs/<id>/or-models` (update per-dialog OR slot model selection, stored in `dialogs.or_models_json`)
 
-- **LLM proxy:** `GET|POST /api/llm/<provider>/*` — forwards to OpenAI / Anthropic / Perplexity / Gemini with server-injected keys; handles streaming (drops `Content-Length`, sets `x-accel-buffering: no`).
+- **LLM proxy:** `GET|POST /api/llm/<provider>/*` — forwards to OpenAI / Anthropic / Gemini / OpenRouter with server-injected keys; handles streaming (drops `Content-Length`, sets `x-accel-buffering: no`).
+- **Auth:** `POST /api/auth/register|login|logout`, `GET /api/auth/me|users`, `DELETE /api/auth/users/:id` — see Authentication section.
+- **LocalFS:** `POST /api/localfs/*` — sandboxed file operations; requires `LOCALFS_ENABLED=true`.
 
 **Security headers** (`server/middleware/http.mjs`): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Cache-Control: no-store` on every response. **Body size** enforced by global `express.json({ limit: MAX_BODY_BYTES })`.
 
@@ -750,6 +1008,10 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 | Settings models empty | No keys for provider; network to list-models endpoint; fallbacks in `userChatModels.js`. |
 | PM2 API stale | `pm2 restart mf-lab-api` from repo root; verify `/api/health`. |
 | Import profile odd state | Session flash key `mf0.profileImportSuccessFlash` in `sessionStorage`; import modal panel visibility CSS in `theme.css`. |
+| OR slot badges show "(no key)" | Check `OPENROUTER_API_KEY` is set in `.env`. Verify `server/routes/settings.mjs` returns `{ "or-1": true }` (not `{ openrouter: true }`). Check `src/modelEnv.js` reads `cfg["or-1"]` not `cfg.openrouter`. |
+| OR slot badge label doesn't update on dialog switch | `serverOrModels` must be declared with `let` before the `try` block in the dialog-open handler in `main.js` so the `requestAnimationFrame` closure can access it. |
+| Login screen not appearing | Check `GET /api/auth/me` returns 401. Verify `attachSession` middleware is registered in `api.mjs`. Check CSP hash in `index.html` matches the inline auth script. |
+| All reply timestamps show same time | `t.assistant_message_at` is `null` for turns from API scripts that omitted the field; fixed in `server/routes/themes.mjs` (1.10.02). |
 
 ---
 

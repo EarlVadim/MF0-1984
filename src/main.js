@@ -81,6 +81,7 @@ import {
   fetchAnalytics,
   fetchThemesPayload,
   fetchTurns,
+  saveDialogOrModels,
   fetchProjectCacheStats,
   fetchTurnCostBreakdown,
   clearProjectMultimediaCache,
@@ -135,10 +136,11 @@ import {
 } from "./irPanelSessionThreads.js";
 import { buildHelpModeSystemInstruction } from "./helpHandoffText.js";
 import { closeHelpChatPanel, openHelpChatPanelDom, isHelpChatOpen } from "./helpChatDom.js";
+import { getModelContextConfig } from "./modelContextConfig.js";
 
 const MAX_LOG_LINES = 500;
 /** Upper bound for estimated input tokens when building thread context (before the model reply). */
-const MF0_MAX_CONTEXT_INPUT_TOKENS = 64000;
+// MF0_MAX_CONTEXT_INPUT_TOKENS is now per-provider — see src/modelContextConfig.js
 
 /** Last N user exchanges (grouped turns) paint first when reopening a long thread; older rows prepend in idle time. */
 const DIALOG_REPLAY_TAIL_GROUP_COUNT = 12;
@@ -3799,7 +3801,10 @@ function showOpenRouterPicker(anchorBtn, slotId = "or-1") {
       setUserAiModel(slotId, "search",   entry.id);
       setUserAiModel(slotId, "research", entry.id);
       // Also save per-dialog so this dialog restores the same model next time
-      if (activeDialogId) saveDialogOrModel(activeDialogId, slotId, entry.id);
+      if (activeDialogId) {
+        saveDialogOrModel(activeDialogId, slotId, entry.id);
+        saveDialogOrModels(activeDialogId, { [slotId]: entry.id });
+      }
       updateOpenRouterBadgeLabel();
       picker.remove();
       appendActivityLog(`OpenRouter model: ${entry.shortName}`);
@@ -5721,6 +5726,22 @@ function syncAssistantCostInfoButton(bubbleEl) {
  * @param {string} [modelHintOverride] — e.g. image generation model id
  * @param {number} [replyOrdinal] — 1 = first reply; 2+ shows "Reply #N" in footer
  */
+
+// ── Reply time label (UTC+1): reads dataset.repliedAt or stamps now ───────
+function replyTimeLabel(el) {
+  let ts = el?.dataset?.repliedAt ? Number(el.dataset.repliedAt) : 0;
+  if (!ts || !Number.isFinite(ts)) {
+    ts = Date.now();
+    if (el) el.dataset.repliedAt = String(ts);
+  }
+  const d = new Date(ts + 10_800_000); // UTC+3
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}.${mo} ${hh}:${mm}`;
+}
+
 function finalizeAssistantBubble(el, fullText, providerId, modelHintOverride, replyOrdinal = 1) {
   if (!el) return;
   el.classList.remove("msg-assistant--pending", "msg-assistant--error");
@@ -5787,8 +5808,8 @@ function finalizeAssistantBubble(el, fullText, providerId, modelHintOverride, re
         });
   const textSpan = document.createElement("span");
   textSpan.textContent = hint
-    ? `Replied: ${label} · ${hint}${replySuffix}`
-    : `Replied: ${label}${replySuffix}`;
+    ? `Replied: ${label} · ${hint}${replySuffix}  ${replyTimeLabel(el)}`
+    : `Replied: ${label}${replySuffix}  ${replyTimeLabel(el)}`;
   const infoBtn = document.createElement("button");
   infoBtn.type = "button";
   infoBtn.className = "msg-assistant-cost-info";
@@ -5982,8 +6003,10 @@ async function openDialogById(dialogId, themeId, scrollToTurnId) {
   if (sendDlg) sendDlg.disabled = false;
   syncSidebarSelectionState(document.getElementById("dialogue-cards"), activeDialogId, activeThemeId);
   setMessagesViewportLoading(true);
+  let serverOrModels = {};
   try {
-    const turns = await fetchTurns(did);
+    const { turns, orModels: _orModels } = await fetchTurns(did);
+    serverOrModels = _orModels ?? {};
     const scrollIdEarly = scrollToTurnId != null ? String(scrollToTurnId).trim() : "";
     replayDialogTurnsGrouped(turns, {
       anchorScrollToTurnId: scrollIdEarly || undefined,
@@ -6024,14 +6047,15 @@ async function openDialogById(dialogId, themeId, scrollToTurnId) {
       }
     }
 
-    // Restore OR slot models for this dialog (apply to global getUserAiModel
-    // so that orDialogue() / kimiDialogue() / dsDialogue() return correct values)
+    // Restore OR slot models for this dialog from server (fallback to localStorage)
     for (const slotId of OR_SLOT_IDS_ALL) {
-      const saved = loadDialogOrModel(did, slotId);
+      const saved = serverOrModels?.[slotId] || loadDialogOrModel(did, slotId);
       if (saved) {
         setUserAiModel(slotId, "dialogue", saved);
         setUserAiModel(slotId, "search",   saved);
         setUserAiModel(slotId, "research", saved);
+        // Mirror to localStorage for offline fallback
+        saveDialogOrModel(did, slotId, saved);
       }
     }
     updateOpenRouterBadgeLabel();
@@ -6164,6 +6188,11 @@ function appendAssistantBubbleFromTurn(turn, replyOrdinal, exchangeRootTurnId, b
   pending.dataset.exchangeRootTurnId = String(exchangeRootTurnId || t.id || "").trim();
   pending.dataset.replyOrdinal = String(replyOrdinal);
   pending.dataset.assistantFavorite = Number(t.assistant_favorite) === 1 ? "1" : "0";
+  // Stamp reply time from DB so it stays stable across reloads
+  if (t.assistant_message_at) {
+    const ts = Date.parse(String(t.assistant_message_at));
+    if (ts > 0) pending.dataset.repliedAt = String(ts);
+  }
   const text = t.assistant_text;
   if (text != null && String(text).length > 0) {
     pending.dataset.assistantWebSearch = rt === "web" ? "1" : "";
@@ -6484,15 +6513,16 @@ async function buildChatOptsForModelRequest(p) {
             /* Router may have billed LLM tokens but returned empty text; keep aux row for that pass. */
           }
         }
+        const _ctxCfg = getModelContextConfig(providerId);
         const built = buildModelContext({
           threadId: persistDialogId,
           userPrompt: promptForApi,
           contextPack: pack,
-          modelFlags: { recentMessageCount: 10 },
+          modelFlags: { recentMessageCount: _ctxCfg.recentMessageCount },
           accessServicesCatalog: catalogRes.entries ?? [],
           memoryTreeSupplement: memoryTreeSupplement || undefined,
         });
-        const fitted = fitContextToBudget(built, MF0_MAX_CONTEXT_INPUT_TOKENS);
+        const fitted = fitContextToBudget(built, _ctxCfg.maxInputTokens);
         let sysOut = fitted.systemInstruction;
         if (introChatOpen) {
           sysOut = [sysOut, INTRO_COACH_SYSTEM_APPEND].filter(Boolean).join("\n\n");
@@ -7195,8 +7225,8 @@ function initChatComposer() {
           const meta = pending?.querySelector(".msg-assistant-model");
           if (meta && repliedLine) {
             const txt = meta.querySelector("span");
-            if (txt) txt.textContent = `Replied: ${repliedLine}`;
-            else meta.textContent = `Replied: ${repliedLine}`;
+            if (txt) txt.textContent = `Replied: ${repliedLine}  ${replyTimeLabel(pending)}`;
+            else meta.textContent = `Replied: ${repliedLine}  ${replyTimeLabel(pending)}`;
           }
           appendActivityLog(`Chat ← reply: AI opinion, models: ${answeredProviders.length}`);
         } else {
