@@ -4,6 +4,86 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.10.03)
+
+### `openrouter-models.json` — replaces `openrouter-models.txt`
+
+The flat pipe-delimited text file is replaced by a structured JSON array. Each entry describes not only the model ID and price but **how the model should be called in each mode** (dialogue / search / research).
+
+**New fields per entry:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Full OpenRouter model ID |
+| `shortName` | string | Label on the slot button (line 1) |
+| `desc` | string | Price hint on the slot button (line 2). Auto-formatted from prices if absent |
+| `inputPer1M` / `outputPer1M` | number | USD prices for analytics cost calculation |
+| `modes.dialogue` | object | `{ model }` — normal chat |
+| `modes.search` | object | `{ model, tools }` — adds `openrouter:web_search` server tool |
+| `modes.research` | object | `{ model, tools }` — adds `web_search` + `web_fetch` server tools |
+
+Fallback if a mode is absent: `research` → `search` → `dialogue`.
+
+**Server (`server/routes/settings.mjs`):**
+- Old line-parser replaced by `loadOpenRouterModels()` which calls `JSON.parse()`
+- `desc` field passed through to frontend
+- `GET /api/settings/openrouter-models` response shape unchanged — `modes` added as new field per entry
+
+**Frontend (`src/chatApi.js`):**
+- `getOrModelCache()` — fetches model list once on first OR send, caches in `_orModelCache` for 5 minutes
+- `getOrModelMode(modelId, mode)` — resolves `{ model, tools }` for a given model+mode
+- `completeChatMessage` / `completeChatMessageStreaming` — OR slot branch calls `getOrModelMode()` and passes resolved `tools` to `callLlm` / `callLlmStream`
+
+No rebuild or restart required when editing `openrouter-models.json` (cache expires after 5 minutes).
+
+**Files changed:** `openrouter-models.json` (new, replaces `openrouter-models.txt`), `server/routes/settings.mjs`, `src/chatApi.js`.
+
+### OR slot button — two-line layout with price
+
+OR slot buttons now display two lines:
+- **Line 1:** `shortName` (0.75 rem, bold)
+- **Line 2:** `desc` or auto-formatted `inputPer1M/outputPer1M` (0.62 rem, 65 % opacity)
+
+Button height increased ~25 % (`min-height: 2.625rem`).
+
+**CSS (`src/theme.css`):**
+- `.badge--or-slot` — `flex-direction: column`, `min-height: 2.625rem`, `gap: 0.1rem`
+- `.badge-or-name` — name line styles
+- `.badge-or-desc` — price/desc line styles
+
+**JS (`src/main.js` — `updateOpenRouterBadgeLabel()`):**
+- Replaced `btn.textContent = label` with two `<span>` children
+- Adds `badge--or-slot` class to button
+- Preserves existing SVG children (lock icons)
+
+**Files changed:** `src/main.js`, `src/theme.css`.
+
+### Provider button visibility (Settings → Provider buttons)
+
+New section in Settings allows hiding individual provider buttons from the chat toolbar.
+
+**Excluded from toggle:** AI opinion and LocalFS buttons.
+
+**Implementation (`src/main.js`):**
+- `TOGGLEABLE_BADGES` — array of `{ provider, label }` for all toggleable buttons
+- `BADGE_VISIBILITY_KEY = "mf0.badge.visibility"` — localStorage key (JSON object: `false` = hidden, missing key = visible)
+- `loadBadgeVisibility()` / `saveBadgeVisibility(map)` — read/write localStorage
+- `applyBadgeVisibility()` — sets `display: none / ""` on `#model-badges` buttons; called at startup after `initProviderBadges()` and on every checkbox change
+- `initBadgeVisibilitySettings()` — renders checkbox list into `#settings-badge-visibility`; called inside `initSettingsModal()`
+
+**`index.html`:** new `<section id="settings-badge-visibility">` added before the AI settings section.
+
+**`src/theme.css`:** `.settings-badge-visibility` (flex-wrap grid), `.settings-badge-visibility-item` (label + checkbox row).
+
+**Files changed:** `src/main.js`, `src/theme.css`, `index.html`.
+
+### Version bump
+
+- `package.json` → **1.10.03**
+
+
+---
+
 ## Release notes (1.10.02)
 
 ### Per-provider context budget — `src/modelContextConfig.js`
@@ -172,13 +252,13 @@ Fourth optimizer action added to Settings → Memory tree optimization:
 
 Implemented in `src/memoryOptimizer.js` (`buildInterestsOrphanReconnectPayload`). Analytics: deterministic, no aux row emitted.
 
-### Per-model analytics and `openrouter-models.txt`
+### Per-model analytics and `openrouter-models.json`
 
-- `openrouter-models.txt` in project root defines the model list for all three OR slots with pricing
-- Format: `model_id | input_$/1M | output_$/1M | short_name`
+- `openrouter-models.json` in project root defines the model list for all three OR slots with pricing and per-mode tool config
+- Format: JSON array — see README § Configuring available models
 - `responding_model_id` column in `conversation_turns` (migration 011) records the exact model per turn
 - Analytics cost calculation uses per-model prices from the file
-- File is read at API startup and on `GET /api/settings/openrouter-models`; no rebuild required on edit
+- File is parsed by `loadOpenRouterModels()` in `server/routes/settings.mjs`; cached 5 min in `chatApi.js`; no rebuild or restart required
 
 ### Login / password authentication
 
@@ -905,7 +985,7 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 - **Assistant favorites:** `GET/POST` variants under `/api/assistant-favorite(s)` and `/api/dialogs/assistant-favorite(s)` (legacy path compatibility)
 - **Themes / dialogs / turns:**  
   `GET /api/themes`, `POST /api/themes/bootstrap`, `POST /api/themes/new-dialog`, `POST /api/themes/delete`, `POST /api/themes/rename`,  
-  `GET /api/dialogs/<id>/turns` (returns `{ turns, orModels }` since 1.10.02), `POST /api/dialogs/<id>/turns`,
+  `GET /api/dialogs/<id>/turns` (returns `{ turns, orModels }` since 1.10.03), `POST /api/dialogs/<id>/turns`,
   `PATCH /api/dialogs/<id>/or-models` (update per-dialog OR slot model selection, stored in `dialogs.or_models_json`)
 
 - **LLM proxy:** `GET|POST /api/llm/<provider>/*` — forwards to OpenAI / Anthropic / Gemini / OpenRouter with server-injected keys; handles streaming (drops `Content-Length`, sets `x-accel-buffering: no`).
@@ -1011,7 +1091,7 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 | OR slot badges show "(no key)" | Check `OPENROUTER_API_KEY` is set in `.env`. Verify `server/routes/settings.mjs` returns `{ "or-1": true }` (not `{ openrouter: true }`). Check `src/modelEnv.js` reads `cfg["or-1"]` not `cfg.openrouter`. |
 | OR slot badge label doesn't update on dialog switch | `serverOrModels` must be declared with `let` before the `try` block in the dialog-open handler in `main.js` so the `requestAnimationFrame` closure can access it. |
 | Login screen not appearing | Check `GET /api/auth/me` returns 401. Verify `attachSession` middleware is registered in `api.mjs`. Check CSP hash in `index.html` matches the inline auth script. |
-| All reply timestamps show same time | `t.assistant_message_at` is `null` for turns from API scripts that omitted the field; fixed in `server/routes/themes.mjs` (1.10.02). |
+| All reply timestamps show same time | `t.assistant_message_at` is `null` for turns from API scripts that omitted the field; fixed in `server/routes/themes.mjs` (1.10.03). |
 
 ---
 

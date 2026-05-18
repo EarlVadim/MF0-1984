@@ -33,6 +33,7 @@ async function getAdapter() {
 // ---------------------------------------------------------------------------
 
 const EMBED_MODEL    = "perplexity/pplx-embed-v1-4b";
+//const EMBED_MODEL    = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
 const EMBED_DIM      = 2048;          // pplx-embed-v1-4b output dimension
 const EMBED_TEXT_MAX = 2000;          // chars sent to the model per node
 const REINDEX_BATCH  = 40;            // nodes per batchReindex run

@@ -8,7 +8,7 @@ This fork extends the original with **Ollama** and **OpenRouter** support, per-d
 |---|---|
 | **UI dev server** | Vite — default port **1984** (`vite.config.js`) |
 | **Local API** | Node + `better-sqlite3` — default port **35184** (`API_PORT`) |
-| **Version** | **1.10.02** |
+| **Version** | **1.10.03** |
 | **Upstream** | [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984) |
 
 For architecture, data model, and operations see **[HANDOFF.md](./HANDOFF.md)**.
@@ -199,22 +199,44 @@ Three provider slots route through the OpenRouter API, each with its own indepen
 
 All three slots share the same `OPENROUTER_API_KEY`. Each slot's **selected model is saved per-dialog** — switching dialogs restores the model that was active in that dialog.
 
-#### Configuring available models: `openrouter-models.txt`
+#### Configuring available models: `openrouter-models.json`
 
-Add or remove models by editing `openrouter-models.txt` in the project root. No rebuild required — the file is read on every Settings open.
+Add or remove models by editing **`openrouter-models.json`** in the project root. No rebuild required — the file is read by the server on every API call and cached for 5 minutes.
 
+```json
+[
+  {
+    "id": "deepseek/deepseek-v4-flash",
+    "shortName": "DS4 Flash",
+    "desc": "0.12/0.25",
+    "inputPer1M": 0.126,
+    "outputPer1M": 0.252,
+    "modes": {
+      "dialogue": { "model": "deepseek/deepseek-v4-flash" },
+      "search":   { "model": "deepseek/deepseek-v4-flash",
+                    "tools": [{ "type": "openrouter:web_search",
+                                "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "deepseek/deepseek-v4-flash",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  }
+]
 ```
-# Format: model_id | input_per_1M_USD | output_per_1M_USD | short_name
-# Lines starting with # and blank lines are ignored.
 
-deepseek/deepseek-v4-flash  | 0.14  | 0.28  | DS Flash
-deepseek/deepseek-v4-pro    | 0.435 | 0.87  | DS Pro
-anthropic/claude-sonnet-4.6 | 3.00  | 15.00 | Sonnet 4.6
-anthropic/claude-haiku-4.5  | 1.00  | 5.00  | Haiku 4.5
-# openai/gpt-4o             | 2.50  | 10.00 | GPT-4o
-```
+| Field | Meaning |
+|---|---|
+| `id` | Full OpenRouter model ID |
+| `shortName` | Label shown on the slot button (first line) |
+| `desc` | Price hint shown on the slot button (second line). If omitted, auto-formatted from `inputPer1M`/`outputPer1M` |
+| `inputPer1M` / `outputPer1M` | Prices in USD used for analytics cost calculation |
+| `modes.dialogue` | Called for normal chat — just `{ "model": "..." }` |
+| `modes.search` | Called when Web Search mode is active — adds `openrouter:web_search` server tool |
+| `modes.research` | Called for Deep Research — adds both `web_search` and `web_fetch` tools |
 
-`short_name` is displayed on the button and in AI opinion headers. If omitted, the last segment of the model ID is used.
+If a mode is absent, the nearest fallback is used: `search` → `dialogue`; `research` → `search` → `dialogue`.
 
 #### Picking a model from the button
 
@@ -278,6 +300,21 @@ Turns created via the external API (`POST /api/dialogs/:id/turns`) receive a ser
 
 ---
 
+## Web Search and Deep Research (OR slots)
+
+OR slot models support two additional modes selectable in the chat toolbar:
+
+| Mode | What happens |
+|---|---|
+| **Web Search** | Adds `openrouter:web_search` server tool to the request. The model decides when to search; OpenRouter executes it and returns cited results. |
+| **Deep Research** | Adds both `openrouter:web_search` and `openrouter:web_fetch`. The model can search multiple times and read full page content for deeper synthesis. |
+
+The exact tool parameters per model are defined in `openrouter-models.json` under `modes.search` and `modes.research`. Models without a `search`/`research` entry fall back to `dialogue` mode (no tools).
+
+These modes apply **only to OR slots** — Gemini, Claude, and OpenAI use their own native grounding mechanisms configured separately.
+
+---
+
 ## LocalFS — file system tools
 
 When `LOCALFS_ENABLED=true`, any model (no function-calling API required) can read and write files inside `LOCALFS_ROOT` using plain text tool calls embedded in its reply:
@@ -332,9 +369,9 @@ Aggregated by provider slot — shows total tokens and estimated cost per OR Slo
 
 ### Per-model analytics
 
-For OpenRouter, costs are calculated **per model** using the prices from `openrouter-models.txt` — column 2 = input $/1M tokens, column 3 = output $/1M tokens. The `responding_model_id` column in `conversation_turns` records the exact model used for each turn, so usage is attributed correctly even when you switch models mid-project.
+For OpenRouter, costs are calculated **per model** using `inputPer1M` / `outputPer1M` from `openrouter-models.json`. The `responding_model_id` column in `conversation_turns` records the exact model used for each turn, so usage is attributed correctly even when you switch models mid-project.
 
-Restarting the server reloads prices from the file (cache is in-process only).
+The server caches the model list for **5 minutes** — edits to `openrouter-models.json` are picked up automatically without restart.
 
 ---
 
@@ -349,7 +386,7 @@ Restarting the server reloads prices from the file (cache is in-process only).
 | `src/localFsTools.js` | Client-side tool call parser and executor |
 | `src/userChatModels.js` | Model selection storage (global + per-dialog) |
 | `src/modelContextConfig.js` | Per-provider context budget (`maxInputTokens`, `recentMessageCount`) |
-| `openrouter-models.txt` | OpenRouter model list with prices and short names |
+| `openrouter-models.json` | OpenRouter model list with prices, short names, and per-mode tool config |
 | `server/api.mjs` | Express bootstrap — loads OR prices at startup |
 | `server/https-proxy.mjs` | Standalone HTTPS reverse proxy with auto self-signed cert |
 | `server/routes/` | Route modules (health, LLM proxy, themes, analytics, localfs, auth, …) |
@@ -366,6 +403,16 @@ Restarting the server reloads prices from the file (cache is in-process only).
 
 ---
 
+## Provider button visibility
+
+In **Settings → Provider buttons** each provider button can be individually shown or hidden in the chat toolbar. Hiding a button does not disconnect the provider — it just removes it from the bar to reduce clutter.
+
+AI opinion and LocalFS buttons are excluded from this toggle (they manage their own visibility).
+
+Visibility preference is stored in `localStorage` under `mf0.badge.visibility`.
+
+---
+
 ## Differences from upstream
 
 | Feature | Upstream | This fork |
@@ -373,12 +420,14 @@ Restarting the server reloads prices from the file (cache is in-process only).
 | 4th provider | Perplexity | Ollama (local, gemma4) |
 | OpenRouter | — | Three independent slots with per-dialog model memory |
 | Model picker | Settings only | Inline dropdown on every OR slot button |
-| Button height | Default | ×1.5 vertical padding |
+| Button height | Default | ×1.5 vertical padding; OR slot buttons show model name + price on two lines |
+| Provider button visibility | All shown | Per-button show/hide toggle in Settings |
 | File system access | — | LocalFS sandbox (7 tools, works with any model) |
 | AI opinion participants | All providers | Configurable checkboxes in Settings |
 | Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot (persisted in DB) |
-| OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.txt` |
+| OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.json` |
 | Memory retrieval | Lexical + LLM rerank | + Semantic layer (pplx-embed-v1-4b, cosine, pool boosting) |
+| Web Search / Research | — | OR slots support `openrouter:web_search` + `openrouter:web_fetch` server tools, configured per-model in `openrouter-models.json` |
 | Authentication | — | Login/password, session cookies, admin/user roles |
 | HTTPS | — | Standalone TLS proxy, auto self-signed cert for dev |
 

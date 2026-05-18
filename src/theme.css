@@ -497,7 +497,7 @@ body {
   border-radius: 9999px;
   border: 1px solid transparent;
   padding: 0.44rem 1.25rem;   /* ×1.5 original 0.25rem vertical */
-  min-height: 2.1rem;
+  min-height: 2.625rem;
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 600;
@@ -595,6 +595,11 @@ body {
     padding-left: 0.55rem;
     padding-right: 0.55rem;
   }
+}
+
+.badge.badge-ai-opinion:not(.active) {
+  background: hsl(214, 100%, 16.3%);
+  color: #fff;
 }
 
 .badge.badge-ai-opinion:disabled {
@@ -5164,6 +5169,8 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
 .badge-localfs {
   opacity: 0.55;
   transition: opacity 0.15s, background 0.15s;
+  background: hsl(123.6, 84.3%, 27.5%);
+  color: #fff;
 }
 .badge-localfs:not(:disabled) {
   opacity: 1;

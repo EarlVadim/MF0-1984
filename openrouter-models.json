@@ -136,28 +136,19 @@
     }
   },
   {
-    "id": "perplexity/pplx-embed-v1-4b",
-    "shortName": "pplxty embed",
-	"desc": "0/0.03",
-    "inputPer1M": 0,
-    "outputPer1M": 0.03,
+    "id": "moonshotai/kimi-k2.6",
+    "shortName": "Kimi 2.6",
+	"desc": "0.73/3.49",
+    "inputPer1M": 0.73,
+    "outputPer1M": 3.49,
     "modes": {
-      "dialogue": { "model": "perplexity/pplx-embed-v1-4b" }
-    }
-  },
-  {
-    "id": "google/gemma-4-31b-it:free",
-    "shortName": "Gemma4 free",
-	"desc": "0/0",
-    "inputPer1M": 0,
-    "outputPer1M": 0,
-    "modes": {
-      "dialogue": { "model": "google/gemma-4-31b-it:free" },
-      "search":   { "model": "google/gemma-4-31b-it:free",
+      "dialogue": { "model": "moonshotai/kimi-k2.6" },
+      "search":   { "model": "moonshotai/kimi-k2.6",
                     "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
-      "research": { "model": "google/gemma-4-31b-it:free",
+      "research": { "model": "moonshotai/kimi-k2.6",
                     "tools": [
-                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } }
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
                     ]}
     }
   },
@@ -206,6 +197,23 @@
       "search":   { "model": "google/gemini-3.1-flash-lite",
                     "tools": [{ "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 5, "max_total_results": 20 } }] },
       "research": { "model": "google/gemini-3.1-flash-lite",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "nvidia/nemotron-3-super-120b-a12b:free",
+    "shortName": "NTron-3S-free",
+	"desc": "0/0",
+    "inputPer1M": 0.0,
+    "outputPer1M": 0.0,
+    "modes": {
+      "dialogue": { "model": "nvidia/nemotron-3-super-120b-a12b:free" },
+      "search":   { "model": "nvidia/nemotron-3-super-120b-a12b:free",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "nvidia/nemotron-3-super-120b-a12b:free",
                     "tools": [
                       { "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 10, "max_total_results": 50 } },
                       { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
