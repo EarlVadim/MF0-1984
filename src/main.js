@@ -791,6 +791,7 @@ function initSettingsModal() {
       appendActivityLog("Chat analysis priority saved");
     },
   });
+  initBadgeVisibilitySettings();
 
   const settingsAiLoading = document.getElementById("settings-ai-loading");
   const settingsModalMainPanel = document.getElementById("settings-modal-main-panel");
@@ -1694,6 +1695,65 @@ const DIALOG_OR_MODEL_KEY_PREFIX = "mf0.dialog.ormodel.";
 
 /** The three OpenRouter slot IDs */
 const OR_SLOT_IDS_ALL = ["or-1", "or-2", "or-3"];
+
+// ── Provider button visibility ────────────────────────────────────────────────
+const BADGE_VISIBILITY_KEY = "mf0.badge.visibility";
+
+// Badges that CAN be toggled (AI opinion and LocalFS manage themselves)
+const TOGGLEABLE_BADGES = [
+  { provider: "openai",       label: "ChatGPT"   },
+  { provider: "ollama",       label: "Gemma4"    },
+  { provider: "or-1",         label: "OR Slot 1" },
+  { provider: "or-2",         label: "OR Slot 2" },
+  { provider: "or-3",         label: "OR Slot 3" },
+  { provider: "gemini-flash", label: "Gemini"    },
+  { provider: "anthropic",    label: "Claude"    },
+];
+
+function loadBadgeVisibility() {
+  try {
+    const raw = localStorage.getItem(BADGE_VISIBILITY_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveBadgeVisibility(map) {
+  localStorage.setItem(BADGE_VISIBILITY_KEY, JSON.stringify(map));
+}
+
+function applyBadgeVisibility() {
+  const vis = loadBadgeVisibility();
+  for (const { provider } of TOGGLEABLE_BADGES) {
+    const hidden = vis[provider] === false;
+    const btn = document.getElementById("model-badges")
+      ?.querySelector(`[data-provider="${provider}"]`);
+    if (btn instanceof HTMLElement) btn.style.display = hidden ? "none" : "";
+  }
+}
+
+function initBadgeVisibilitySettings() {
+  const container = document.getElementById("settings-badge-visibility");
+  if (!container) return;
+  container.innerHTML = "";
+  const vis = loadBadgeVisibility();
+  for (const { provider, label } of TOGGLEABLE_BADGES) {
+    const checked = vis[provider] !== false;
+    const item = document.createElement("label");
+    item.className = "settings-badge-visibility-item";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = checked;
+    cb.addEventListener("change", () => {
+      const current = loadBadgeVisibility();
+      current[provider] = cb.checked;
+      saveBadgeVisibility(current);
+      applyBadgeVisibility();
+    });
+    item.appendChild(cb);
+    item.appendChild(document.createTextNode(label));
+    container.appendChild(item);
+  }
+}
 
 /**
  * Save the selected model for an OR slot in a specific dialog.
@@ -3736,25 +3796,52 @@ function initAttachMenu() {
  * Update the OpenRouter badge text to show the selected model's short name.
  */
 function updateOpenRouterBadgeLabel() {
-  // Update all three OR slots: or-3, or-1, or-2
-  const slotDefaults = {   
+  // Update all three OR slots: or-1, or-2, or-3
+  const slotDefaults = {
     "or-1": "OR Slot 1",
-    "or-2":   "OR Slot 2", 
-	"or-3": "OR Slot 3",
+    "or-2": "OR Slot 2",
+    "or-3": "OR Slot 3",
   };
   for (const [slotId, fallback] of Object.entries(slotDefaults)) {
-    // Use per-dialog model if a dialog is open, otherwise global
     const currentModelId = activeDialogId
       ? loadDialogOrModel(activeDialogId, slotId)
       : getUserAiModel(slotId, "dialogue");
     const entry = openRouterEntries.find((e) => e.id === currentModelId);
     const label = entry?.shortName || fallback;
+
+    // Build price desc: prefer entry.desc, fallback to inputPer1M/outputPer1M
+    let desc = "";
+    if (entry) {
+      if (entry.desc) {
+        desc = entry.desc;
+      } else if (entry.inputPer1M != null && entry.outputPer1M != null) {
+        const fmt = (v) => v === 0 ? "0" : String(v);
+        desc = `${fmt(entry.inputPer1M)}/${fmt(entry.outputPer1M)}`;
+      }
+    }
+
     for (const wrapId of ["model-badges", "settings-ai-priority-badges"]) {
       const btn = document.getElementById(wrapId)
         ?.querySelector?.(`[data-provider="${slotId}"]`);
       if (!(btn instanceof HTMLElement)) continue;
+
+      // Preserve SVG children (lock icons etc.)
       const svgNodes = [...btn.childNodes].filter((n) => n.nodeName === "svg" || n.nodeName === "SVG");
-      btn.textContent = label;
+      btn.textContent = "";
+      btn.classList.add("badge--or-slot");
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "badge-or-name";
+      nameEl.textContent = label;
+      btn.appendChild(nameEl);
+
+      if (desc) {
+        const descEl = document.createElement("span");
+        descEl.className = "badge-or-desc";
+        descEl.textContent = desc;
+        btn.appendChild(descEl);
+      }
+
       for (const svg of svgNodes) btn.appendChild(svg);
     }
   }
@@ -7790,6 +7877,7 @@ function bootApp() {
   initFavoritesPanel();
   initSettingsModal();
   initProviderBadges();
+  applyBadgeVisibility();
   refreshSettingsAiPriorityBadges();
   initThemeCardActions();
   initDialoguesMenu();

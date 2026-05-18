@@ -4,7 +4,34 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OPENROUTER_MODELS_FILE = resolve(__dir, "../../openrouter-models.txt");
+const OPENROUTER_MODELS_FILE = resolve(__dir, "../../openrouter-models.json");
+
+/**
+ * Parse openrouter-models.json → array of model entries.
+ * Falls back to empty array on any error.
+ * @returns {Array<{ id: string, shortName: string, inputPer1M: number, outputPer1M: number, modes: object }>}
+ */
+function loadOpenRouterModels() {
+  try {
+    if (!existsSync(OPENROUTER_MODELS_FILE)) return [];
+    const raw = readFileSync(OPENROUTER_MODELS_FILE, "utf-8");
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((e) => e && typeof e.id === "string" && e.id.trim())
+      .map((e) => ({
+        id:          e.id.trim(),
+        shortName:   typeof e.shortName === "string" ? e.shortName.trim() : e.id.split("/").pop(),
+        desc:        typeof e.desc === "string" ? e.desc.trim() : "",
+        inputPer1M:  Number(e.inputPer1M)  || 0,
+        outputPer1M: Number(e.outputPer1M) || 0,
+        modes:       e.modes && typeof e.modes === "object" ? e.modes : {},
+      }));
+  } catch (e) {
+    console.error("[settings] Failed to load openrouter-models.json:", e.message);
+    return [];
+  }
+}
 import { readAiModelListsCachePayload, writeAiModelListsCachePayload } from "../services/aiModelCache.mjs";
 import { getProjectCacheStatsPayload, clearProjectMultimediaCacheFull } from "../services/projectCache.mjs";
 
@@ -67,26 +94,7 @@ router.get("/settings/configured-providers", (_req, res) => {
  */
 router.get("/settings/openrouter-models", (_req, res) => {
   try {
-    if (!existsSync(OPENROUTER_MODELS_FILE)) {
-      return res.json({ ok: true, models: [] });
-    }
-    const raw = readFileSync(OPENROUTER_MODELS_FILE, "utf-8");
-    const models = raw
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith("#"))
-      .map((l) => {
-        const parts = l.split("|").map((p) => p.trim());
-        const id = parts[0];
-        const inputPer1M  = parts.length > 1 ? (parseFloat(parts[1]) || 0) : 0;
-        const outputPer1M = parts.length > 2 ? (parseFloat(parts[2]) || 0) : 0;
-        const shortName   = parts.length > 3 && parts[3]
-          ? parts[3]
-          : (id.split("/").pop() || id);
-        return { id, inputPer1M, outputPer1M, shortName };
-      })
-      .filter((e) => Boolean(e.id));
-    res.json({ ok: true, models });
+    res.json({ ok: true, models: loadOpenRouterModels() });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

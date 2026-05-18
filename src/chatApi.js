@@ -16,6 +16,39 @@ import {
 } from "./llmGateway.js";
 import { titleFromUserMessage } from "./chatPersistence.js";
 import { getUserAiModel } from "./userChatModels.js";
+import { fetchOpenRouterModelEntries } from "./fetchRemoteModelLists.js";
+
+// ── OR model mode cache ───────────────────────────────────────────────────────
+// Loaded once from /api/settings/openrouter-models and refreshed on demand.
+let _orModelCache = /** @type {Map<string, object>|null} */ (null);
+
+async function getOrModelCache() {
+  if (_orModelCache) return _orModelCache;
+  const entries = await fetchOpenRouterModelEntries().catch(() => []);
+  _orModelCache = new Map(entries.map((e) => [e.id, e]));
+  // Invalidate after 5 minutes so edits to JSON are picked up
+  setTimeout(() => { _orModelCache = null; }, 5 * 60_000);
+  return _orModelCache;
+}
+
+/**
+ * Returns { model, tools } for an OR-slot model in a given mode.
+ * Falls back gracefully: missing mode → dialogue; missing model field → id itself.
+ * @param {string} modelId  — the model ID currently selected for the slot
+ * @param {"dialogue"|"search"|"research"} mode
+ * @returns {Promise<{ model: string, tools: Array<object>|undefined }>}
+ */
+async function getOrModelMode(modelId, mode) {
+  const cache = await getOrModelCache();
+  const entry = cache.get(modelId);
+  const modeConf = entry?.modes?.[mode] ?? entry?.modes?.["dialogue"] ?? null;
+  return {
+    model: modeConf?.model ?? modelId,
+    tools: Array.isArray(modeConf?.tools) && modeConf.tools.length > 0
+      ? modeConf.tools
+      : undefined,
+  };
+}
 
 export const PROVIDER_DISPLAY = {
   openai:        "ChatGPT",
@@ -353,17 +386,37 @@ export async function completeChatMessage(providerId, text, apiKey, options = {}
     trimmed,
   ].filter(Boolean).join("\n");
 
+  const isOrSlot = providerId === "or-1" || providerId === "or-2" || providerId === "or-3";
+
   let messages, geminiParts;
   if (providerId === "gemini-flash") {
     const combined = geminiFlattenMessages(String(system ?? ""), rawMsgs);
     const imgs = Array.isArray(options.chatAttachments?.images) ? options.chatAttachments.images : [];
-    geminiParts = /** @type {Array<{text?: string, inlineData?: {mimeType: string, data: string}}>} */ (
-      [{ text: combined }, ...imgs.map((im) => ({ inlineData: { mimeType: im.mimeType || "image/png", data: im.base64 } }))]
-    );
+    geminiParts = [{ text: combined }, ...imgs.map((im) => ({ inlineData: { mimeType: im.mimeType || "image/png", data: im.base64 } }))];
   } else if (providerId === "anthropic") {
     messages = applyChatAttachmentsToAnthropicMessages(rawMsgs, options.chatAttachments);
   } else {
     messages = applyChatAttachmentsToOpenAiMessages(rawMsgs, options.chatAttachments);
+  }
+
+  // OR slots: resolve model + tools from openrouter-models.json
+  if (isOrSlot) {
+    const currentModel = getUserAiModel(providerId, "dialogue");
+    const orMode = deepResearch ? "research" : webSearch ? "search" : "dialogue";
+    const { model: orModel, tools: orTools } = await getOrModelMode(currentModel, orMode);
+    return callLlm({
+      provider: providerId, key,
+      model: orModel,
+      messages: messages ?? rawMsgs,
+      system,
+      tools: orTools,
+      googleSearch: false,
+      disableSearch: false,
+      withCitations: true,
+      requestKind: null,
+      abortSignal,
+      promptBasis: promptUsageBasis,
+    });
   }
 
   return callLlm({
@@ -465,17 +518,38 @@ export async function completeChatMessageStreaming(providerId, text, apiKey, onD
     trimmed,
   ].filter(Boolean).join("\n");
 
+  const isOrSlot = providerId === "or-1" || providerId === "or-2" || providerId === "or-3";
+
   let messages, geminiParts;
   if (providerId === "gemini-flash") {
     const combined = geminiFlattenMessages(String(system ?? ""), rawMsgs);
     const imgs = Array.isArray(options.chatAttachments?.images) ? options.chatAttachments.images : [];
-    geminiParts = /** @type {Array<{text?: string, inlineData?: {mimeType: string, data: string}}>} */ (
-      [{ text: combined }, ...imgs.map((im) => ({ inlineData: { mimeType: im.mimeType || "image/png", data: im.base64 } }))]
-    );
+    geminiParts = [{ text: combined }, ...imgs.map((im) => ({ inlineData: { mimeType: im.mimeType || "image/png", data: im.base64 } }))];
   } else if (providerId === "anthropic") {
     messages = applyChatAttachmentsToAnthropicMessages(rawMsgs, options.chatAttachments);
   } else {
     messages = applyChatAttachmentsToOpenAiMessages(rawMsgs, options.chatAttachments);
+  }
+
+  // OR slots: resolve model + tools from openrouter-models.json
+  if (isOrSlot) {
+    const currentModel = getUserAiModel(providerId, "dialogue");
+    const orMode = deepResearch ? "research" : webSearch ? "search" : "dialogue";
+    const { model: orModel, tools: orTools } = await getOrModelMode(currentModel, orMode);
+    return callLlmStream({
+      provider: providerId, key,
+      model: orModel,
+      messages: messages ?? rawMsgs,
+      system,
+      maxTokens: 4096,
+      tools: orTools,
+      googleSearch: false,
+      disableSearch: false,
+      onDelta,
+      requestKind: null,
+      abortSignal,
+      promptBasis: promptUsageBasis,
+    });
   }
 
   return callLlmStream({

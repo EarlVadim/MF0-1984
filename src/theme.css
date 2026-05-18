@@ -513,6 +513,28 @@ body {
   color: hsl(var(--secondary-foreground));
 }
 
+
+/* OR slot badges — two-line layout (model name + price desc) */
+.badge.badge--or-slot {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.35rem 1.0rem;
+  min-height: 2.625rem;   /* ~25% taller than base 2.1rem */
+  line-height: 1.1;
+}
+.badge.badge--or-slot .badge-or-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge.badge--or-slot .badge-or-desc {
+  font-size: 0.62rem;
+  font-weight: 400;
+  opacity: 0.65;
+  letter-spacing: 0.01em;
+}
+
 .badge:hover:not(.active):not(:disabled):not(.badge--no-key) {
   filter: brightness(1.03);
 }
@@ -5218,4 +5240,29 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
 .openrouter-picker::-webkit-scrollbar-thumb {
   background: hsl(var(--border));
   border-radius: 3px;
+}
+
+/* ── Settings: Provider buttons visibility checkboxes ───────────────────── */
+.settings-badge-visibility {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 2px 0;
+}
+.settings-badge-visibility-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.8rem;
+  color: hsl(var(--foreground));
+  min-width: 100px;
+}
+.settings-badge-visibility-item input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: hsl(var(--primary));
+  cursor: pointer;
+  flex-shrink: 0;
 }

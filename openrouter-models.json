@@ -1,0 +1,215 @@
+[
+  {
+    "id": "deepseek/deepseek-v4-flash",
+    "shortName": "DS4 Flash",
+	"desc": "0.12/0.25",
+    "inputPer1M": 0.126,
+    "outputPer1M": 0.252,
+    "modes": {
+      "dialogue": { "model": "deepseek/deepseek-v4-flash" },
+      "search":   { "model": "deepseek/deepseek-v4-flash",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "deepseek/deepseek-v4-flash",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "deepseek/deepseek-v4-pro",
+    "shortName": "DS4 Pro",
+	"desc": "0.435/0.87",
+    "inputPer1M": 0.435,
+    "outputPer1M": 0.87,
+    "modes": {
+      "dialogue": { "model": "deepseek/deepseek-v4-pro" },
+      "search":   { "model": "deepseek/deepseek-v4-pro",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "deepseek/deepseek-v4-pro",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "anthropic/claude-sonnet-4.6",
+    "shortName": "Sonnet 4.6",
+	"desc": "3.0/15.0",
+    "inputPer1M": 3.00,
+    "outputPer1M": 15.00,
+    "modes": {
+      "dialogue": { "model": "anthropic/claude-sonnet-4.6" },
+      "search":   { "model": "anthropic/claude-sonnet-4.6",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "anthropic/claude-sonnet-4.6",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "anthropic/claude-haiku-4.5",
+    "shortName": "Haiku 4.5",
+	"desc": "1.0/5.0",
+    "inputPer1M": 1.00,
+    "outputPer1M": 5.00,
+    "modes": {
+      "dialogue": { "model": "anthropic/claude-haiku-4.5" },
+      "search":   { "model": "anthropic/claude-haiku-4.5",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "anthropic/claude-haiku-4.5",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "qwen/qwen3.6-plus",
+    "shortName": "Qwen3.6+",
+	"desc": "0.325/1.95",
+    "inputPer1M": 0.325,
+    "outputPer1M": 1.95,
+    "modes": {
+      "dialogue": { "model": "qwen/qwen3.6-plus" },
+      "search":   { "model": "qwen/qwen3.6-plus",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "qwen/qwen3.6-plus",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "qwen/qwen3.5-plus-02-15",
+    "shortName": "Qwen3.5+",
+	"desc": "0.26/1.5",
+    "inputPer1M": 0.26,
+    "outputPer1M": 1.50,
+    "modes": {
+      "dialogue": { "model": "qwen/qwen3.5-plus-02-15" },
+      "search":   { "model": "qwen/qwen3.5-plus-02-15",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "qwen/qwen3.5-plus-02-15",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "qwen/qwen3.5-flash-02-23",
+    "shortName": "Qwen3.5F",
+	"desc": "0.065/0.26",
+    "inputPer1M": 0.065,
+    "outputPer1M": 0.26,
+    "modes": {
+      "dialogue": { "model": "qwen/qwen3.5-flash-02-23" },
+      "search":   { "model": "qwen/qwen3.5-flash-02-23",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "qwen/qwen3.5-flash-02-23",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "moonshotai/kimi-k2.5",
+    "shortName": "Kimi 2.5",
+	"desc": "0.40/1.90",
+    "inputPer1M": 0.40,
+    "outputPer1M": 1.90,
+    "modes": {
+      "dialogue": { "model": "moonshotai/kimi-k2.5" },
+      "search":   { "model": "moonshotai/kimi-k2.5",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "moonshotai/kimi-k2.5",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "perplexity/pplx-embed-v1-4b",
+    "shortName": "pplxty embed",
+	"desc": "0/0.03",
+    "inputPer1M": 0,
+    "outputPer1M": 0.03,
+    "modes": {
+      "dialogue": { "model": "perplexity/pplx-embed-v1-4b" }
+    }
+  },
+  {
+    "id": "google/gemma-4-31b-it:free",
+    "shortName": "Gemma4 free",
+	"desc": "0/0",
+    "inputPer1M": 0,
+    "outputPer1M": 0,
+    "modes": {
+      "dialogue": { "model": "google/gemma-4-31b-it:free" },
+      "search":   { "model": "google/gemma-4-31b-it:free",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "google/gemma-4-31b-it:free",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } }
+                    ]}
+    }
+  },
+  {
+    "id": "google/gemma-4-31b-it",
+    "shortName": "Gemma4-31",
+	"desc": "0.12/0.37",
+    "inputPer1M": 0.12,
+    "outputPer1M": 0.37,
+    "modes": {
+      "dialogue": { "model": "google/gemma-4-31b-it" },
+      "search":   { "model": "google/gemma-4-31b-it",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "google/gemma-4-31b-it",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "google/gemini-3-flash-preview",
+    "shortName": "Gemini3F",
+	"desc": "0.5/3.0",
+    "inputPer1M": 0.50,
+    "outputPer1M": 3.00,
+    "modes": {
+      "dialogue": { "model": "google/gemini-3-flash-preview" },
+      "search":   { "model": "google/gemini-3-flash-preview",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "google/gemini-3-flash-preview",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  },
+  {
+    "id": "google/gemini-3.1-flash-lite",
+    "shortName": "Gemini3FL",
+	"desc": "0.25/1.5",
+    "inputPer1M": 0.25,
+    "outputPer1M": 1.50,
+    "modes": {
+      "dialogue": { "model": "google/gemini-3.1-flash-lite" },
+      "search":   { "model": "google/gemini-3.1-flash-lite",
+                    "tools": [{ "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 5, "max_total_results": 20 } }] },
+      "research": { "model": "google/gemini-3.1-flash-lite",
+                    "tools": [
+                      { "type": "openrouter:web_search", "parameters": { "engine": "auto", "max_results": 10, "max_total_results": 50 } },
+                      { "type": "openrouter:web_fetch",  "parameters": { "max_uses": 5, "max_content_tokens": 50000 } }
+                    ]}
+    }
+  }
+]
