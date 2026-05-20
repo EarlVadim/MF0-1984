@@ -2,7 +2,7 @@
 
 **MF0-1984** is a **local-first** single-page app for multi-provider LLM chat, structured workflows (Intro / Access / Rules / Help), a **Memory tree** (3D graph over SQLite), **themes** and dialogs, **analytics**, **favorites**, and **project profile** backup/restore (`.mf` bundles).
 
-This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer, **login/password authentication**, **HTTPS**, **semantic memory search**, and **per-model analytics**.
+This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload**, **login/password authentication**, **HTTPS**, **semantic memory search**, and **per-model analytics**.
 
 | | |
 |---|---|
@@ -128,6 +128,10 @@ A standalone HTTPS reverse proxy is included at `server/https-proxy.mjs`. It ter
 
 ```bash
 node --env-file=.env server/https-proxy.mjs
+npm run build        
+npx pm2 start ecosystem.config.cjs --host 127.0.0.1 --port 1984
+npx pm2 save          
+npx pm2 startup       
 ```
 
 **Self-signed certificate (development):** if `HTTPS_CERT` / `HTTPS_KEY` files do not exist, a self-signed certificate is generated automatically using Node's built-in `crypto` — no `openssl` binary required. Files are written to `certs/server.crt` and `certs/server.key`.
@@ -349,6 +353,28 @@ When `LOCALFS_ENABLED=true`, any model (no function-calling API required) can re
 
 ---
 
+## LocalFS file upload
+
+A dedicated upload button (diskette icon) sits immediately to the right of the LocalFS button and shares the same height. Clicking it opens a two-item menu:
+
+| Option | Behaviour |
+|---|---|
+| **Файлы** | Standard multi-file picker — select one or more individual files |
+| **Папка** | Folder picker (`webkitdirectory`) — selects an entire directory tree; the relative path of every file (including sub-folders) is preserved under `LOCALFS_ROOT` |
+
+Files are uploaded one at a time via `POST /api/localfs/upload` with the relative path in the `X-Upload-Path` header. Parent directories are created automatically. Progress and result are written to the Activity log:
+
+```
+LocalFS upload: starting — 42 file(s)
+LocalFS upload: done — 42 saved
+```
+
+**Note:** the browser shows a system confirmation dialog before transferring a folder — this is a built-in browser safety prompt for `webkitdirectory` uploads and cannot be suppressed by application code.
+
+**Requires:** `LOCALFS_ENABLED=true` in `.env`. The button is disabled when LocalFS is not configured.
+
+---
+
 ## AI opinion
 
 AI opinion runs a round-robin discussion across all enabled providers. Manage participants in **Settings → AI opinion — participants** — uncheck any model you don't currently have access to. At least two must remain enabled.
@@ -391,7 +417,7 @@ The server caches the model list for **5 minutes** — edits to `openrouter-mode
 | `server/https-proxy.mjs` | Standalone HTTPS reverse proxy with auto self-signed cert |
 | `server/routes/` | Route modules (health, LLM proxy, themes, analytics, localfs, auth, …) |
 | `server/routes/auth.mjs` | Login / logout / register / user management |
-| `server/routes/localfs.mjs` | LocalFS sandbox API |
+| `server/routes/localfs.mjs` | LocalFS sandbox API + binary file upload (`POST /api/localfs/upload`) |
 | `server/middleware/auth.mjs` | `requireAuth` / `requireAdmin` Express middleware |
 | `server/db/` | Schema, migrations, analytics queries |
 | `server/db/auth.mjs` | User + session CRUD, password hashing (scrypt) |
@@ -423,6 +449,7 @@ Visibility preference is stored in `localStorage` under `mf0.badge.visibility`.
 | Button height | Default | ×1.5 vertical padding; OR slot buttons show model name + price on two lines |
 | Provider button visibility | All shown | Per-button show/hide toggle in Settings |
 | File system access | — | LocalFS sandbox (7 tools, works with any model) |
+| LocalFS file upload | — | Upload button with file / folder picker; preserves subfolder structure |
 | AI opinion participants | All providers | Configurable checkboxes in Settings |
 | Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot (persisted in DB) |
 | OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.json` |

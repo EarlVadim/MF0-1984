@@ -326,4 +326,54 @@ router.delete("/localfs/delete", (req, res) => {
   }
 });
 
-export default router;
+// ── POST /api/localfs/upload ──────────────────────────────────────────────────
+// Upload a single binary file. Relative path (including sub-folders) is passed
+// in the X-Upload-Path header. Parent directories are created automatically.
+// Max 32 MB per file.
+const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
+
+router.post("/localfs/upload", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  const relPath = String(req.headers["x-upload-path"] ?? "").trim();
+  if (!relPath) return res.status(400).json({ ok: false, error: "X-Upload-Path header required" });
+
+  let abs;
+  try { abs = safePath(relPath); } catch (e) {
+    return res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+
+  const chunks = [];
+  let totalBytes = 0;
+  let aborted = false;
+
+  req.on("data", (chunk) => {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_UPLOAD_BYTES) {
+      aborted = true;
+      res.status(413).json({ ok: false, error: `File too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)` });
+      req.destroy();
+    } else {
+      chunks.push(chunk);
+    }
+  });
+
+  req.on("end", () => {
+    if (aborted || res.headersSent) return;
+    try {
+      const buf = Buffer.concat(chunks);
+      const dir = abs.slice(0, abs.lastIndexOf("/"));
+      if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(abs, buf);
+      const rel = relative(resolve(ROOT), abs);
+      res.json({ ok: true, path: rel, sizeBytes: buf.length });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  req.on("error", (e) => {
+    if (!res.headersSent) res.status(500).json({ ok: false, error: e.message });
+  });
+});
+
+export { router as default };

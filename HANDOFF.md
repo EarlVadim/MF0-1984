@@ -84,6 +84,68 @@ New section in Settings allows hiding individual provider buttons from the chat 
 
 ---
 
+## Release notes (1.10.04)
+
+### LocalFS file upload button
+
+New square button (diskette icon) placed immediately to the right of the LocalFS button. Shares the same `min-height: 2.625rem` as all other badge buttons.
+
+**API (`server/routes/localfs.mjs`):**
+- New `POST /api/localfs/upload` endpoint — accepts raw binary body, relative path in `X-Upload-Path` header, max 32 MB per file
+- Creates intermediate directories with `mkdirSync({ recursive: true })`
+- Response: `{ ok: true, path, sizeBytes }` or `{ ok: false, error }`
+
+**HTML (`index.html`):**
+- `<button id="btn-localfs-upload" class="badge badge-localfs-upload">` with diskette SVG icon
+- Two hidden `<input type="file">` elements: `#localfs-upload-input-files` (multi-file) and `#localfs-upload-input-folder` (webkitdirectory)
+
+**CSS (`src/theme.css`):**
+- `.badge-localfs-upload` — square `2.625rem × 2.625rem`, same green as LocalFS (`hsl(123.6, 84.3%, 27.5%)`), `opacity: 0.55` when disabled
+- `.localfs-upload-menu` — fixed-position mini-menu with two items (Файлы / Папка), closes on outside click
+
+**JS (`src/main.js` — `initLocalFsUploadButton()`):**
+- Enabled/disabled state mirrors `localFsConfig.enabled`
+- Click opens mini-menu anchored above the button; second click closes it
+- Shared `handleFiles(files)` uploads sequentially, logs start + per-file errors + summary to Activity log
+- `webkitRelativePath` used for folder uploads to preserve subfolder structure; `file.name` fallback for individual files
+
+**Files changed:** `server/routes/localfs.mjs`, `index.html`, `src/main.js`, `src/theme.css`.
+
+### Replied model label — fixed on dialog switch (web search / deep research)
+
+`appendAssistantBubbleFromTurn()` now reads `t.responding_model_id` from the DB turn record and passes it as `modelHintOverride` to `finalizeAssistantBubble()`. Previously, the label was resolved from `apiModelHint(providerId)` which reads the **currently selected** model in the UI — leading to incorrect labels after switching dialogs.
+
+For web search and deep research turns, the appropriate suffix is appended based on `request_type`:
+
+```js
+const modeSuffix =
+  rt === "web"      ? " · web search" :
+  rt === "research" ? " · deep research" :
+  "";
+storedModelHint = mid + modeSuffix;
+```
+
+Old turns without `responding_model_id` fall back to the previous `apiModelHint` path.
+
+**Files changed:** `src/main.js`.
+
+### Badge button colors and unified height
+
+All badge buttons now share `min-height: 2.625rem` (previously `2.1rem` for non-OR-slot buttons). This aligns the height of Gemma4, Gemini, Claude, AI opinion, LocalFS, and upload buttons with the two-line OR slot buttons.
+
+Color assignments added to `src/theme.css`:
+- **AI opinion** (inactive): `hsl(213.8, 88.9%, 28.2%)` (dark blue), white text
+- **LocalFS** (all states): `hsl(123.6, 84.3%, 27.5%)` (dark green), white text
+- **LocalFS upload**: same green as LocalFS
+
+**Files changed:** `src/theme.css`.
+
+### Version bump
+
+- `package.json` → **1.10.04**
+
+---
+
 ## Release notes (1.10.02)
 
 ### Per-provider context budget — `src/modelContextConfig.js`
@@ -879,7 +941,7 @@ Settings → **Project Cache** no longer shows a single combined **“files & pi
 | `src/localFsTools.js` | `<tool>…</tool>` parser and tool executor for LocalFS mode. |
 | `src/memoryGraphSemanticSearch.js` | Browser-side embedding + cosine similarity for memory router semantic layer. |
 | `server/routes/auth.mjs` | `/api/auth/*` endpoints: register, login, logout, me, user management. |
-| `server/routes/localfs.mjs` | LocalFS sandbox REST API, path traversal protection. |
+| `server/routes/localfs.mjs` | LocalFS sandbox REST API, path traversal protection, binary file upload (`POST /api/localfs/upload`). |
 | `server/middleware/auth.mjs` | `attachSession` (global), `requireAuth`, session cookie helpers. |
 | `server/db/auth.mjs` | User + session CRUD, password hashing (SHA-512 + 100k iter + salt). Lazy adapter load. |
 | `server/https-proxy.mjs` | Standalone HTTPS reverse proxy, auto self-signed cert generation. |
@@ -991,6 +1053,7 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 - **LLM proxy:** `GET|POST /api/llm/<provider>/*` — forwards to OpenAI / Anthropic / Gemini / OpenRouter with server-injected keys; handles streaming (drops `Content-Length`, sets `x-accel-buffering: no`).
 - **Auth:** `POST /api/auth/register|login|logout`, `GET /api/auth/me|users`, `DELETE /api/auth/users/:id` — see Authentication section.
 - **LocalFS:** `POST /api/localfs/*` — sandboxed file operations; requires `LOCALFS_ENABLED=true`.
+  - `POST /api/localfs/upload` — binary upload; path in `X-Upload-Path` header; max 32 MB; creates intermediate dirs automatically.
 
 **Security headers** (`server/middleware/http.mjs`): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Cache-Control: no-store` on every response. **Body size** enforced by global `express.json({ limit: MAX_BODY_BYTES })`.
 
@@ -1091,6 +1154,8 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 | OR slot badges show "(no key)" | Check `OPENROUTER_API_KEY` is set in `.env`. Verify `server/routes/settings.mjs` returns `{ "or-1": true }` (not `{ openrouter: true }`). Check `src/modelEnv.js` reads `cfg["or-1"]` not `cfg.openrouter`. |
 | OR slot badge label doesn't update on dialog switch | `serverOrModels` must be declared with `let` before the `try` block in the dialog-open handler in `main.js` so the `requestAnimationFrame` closure can access it. |
 | Login screen not appearing | Check `GET /api/auth/me` returns 401. Verify `attachSession` middleware is registered in `api.mjs`. Check CSP hash in `index.html` matches the inline auth script. |
+| Upload button disabled | Check `LOCALFS_ENABLED=true` in `.env` and that `mf-lab-api` was restarted. `GET /api/localfs/config` should return `{ "enabled": true }`. |
+| Upload button — folder upload shows browser warning | Expected browser behaviour for `webkitdirectory`; cannot be suppressed. |
 | All reply timestamps show same time | `t.assistant_message_at` is `null` for turns from API scripts that omitted the field; fixed in `server/routes/themes.mjs` (1.10.03). |
 
 ---

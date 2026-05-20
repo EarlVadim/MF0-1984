@@ -5185,6 +5185,63 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
   pointer-events: none;
 }
 
+/* ── LocalFS upload button ───────────────────────────────────────────────── */
+.badge-localfs-upload {
+  background: hsl(123.6, 84.3%, 27.5%);
+  color: #fff;
+  opacity: 0.55;
+  /* Square: match height of other badges, width = height */
+  padding: 0;
+  width: 2.625rem;
+  min-width: 2.625rem;
+  max-width: 2.625rem;
+  flex-shrink: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.badge-localfs-upload:not(:disabled) {
+  opacity: 1;
+  cursor: pointer;
+}
+.badge-localfs-upload:disabled {
+  cursor: default;
+  pointer-events: none;
+}
+.badge-localfs-upload:not(:disabled):hover {
+  background: hsl(123.6, 84.3%, 33%);
+}
+.badge-localfs-upload.uploading {
+  opacity: 0.7;
+  cursor: wait;
+  pointer-events: none;
+}
+
+/* upload type picker mini-menu */
+.localfs-upload-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--popover, #1e2433);
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 0.5rem;
+  padding: 0.25rem 0;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  min-width: 130px;
+}
+.localfs-upload-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--popover-foreground, #e2e8f0);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.localfs-upload-menu button:hover {
+  background: var(--accent, rgba(255,255,255,0.08));
+}
+
 /* ── OpenRouter model picker dropdown ───────────────────────────────────── */
 .openrouter-picker {
   position: fixed;

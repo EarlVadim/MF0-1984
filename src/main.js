@@ -786,6 +786,7 @@ function initSettingsModal() {
   initSettingsAiPriorityBadges();
   initAiOpinionParticipants();
   initLocalFsButton();
+  initLocalFsUploadButton();
   initChatAnalysisPrioritySettings({
     onSave() {
       appendActivityLog("Chat analysis priority saved");
@@ -3947,6 +3948,92 @@ function initLocalFsButton() {
   syncLocalFsButton();
 }
 
+
+function initLocalFsUploadButton() {
+  const btn = document.getElementById('btn-localfs-upload');
+  const inputFiles  = document.getElementById('localfs-upload-input-files');
+  const inputFolder = document.getElementById('localfs-upload-input-folder');
+  if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === '1') return;
+  btn.dataset.bound = '1';
+
+  function syncUploadBtn() {
+    const available = localFsConfig.enabled;
+    btn.disabled = !available;
+    btn.setAttribute('aria-disabled', available ? 'false' : 'true');
+    btn.title = available
+      ? 'Upload files / folder to LocalFS'
+      : 'Upload to LocalFS: not configured (set LOCALFS_ENABLED=true in .env)';
+  }
+  syncUploadBtn();
+
+  let uploadMenu = null;
+
+  function closeUploadMenu() {
+    if (uploadMenu) { uploadMenu.remove(); uploadMenu = null; }
+    document.removeEventListener('pointerdown', onOutside, true);
+  }
+
+  function onOutside(e) {
+    if (uploadMenu && !uploadMenu.contains(e.target) && e.target !== btn) closeUploadMenu();
+  }
+
+  function openUploadMenu() {
+    closeUploadMenu();
+    const rect = btn.getBoundingClientRect();
+    uploadMenu = document.createElement('div');
+    uploadMenu.className = 'localfs-upload-menu';
+    uploadMenu.style.left = rect.left + 'px';
+    uploadMenu.style.top  = (rect.top - 6) + 'px';
+    uploadMenu.style.transform = 'translateY(-100%)';
+
+    const mkItem = (label, handler) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('click', () => { closeUploadMenu(); handler(); });
+      return b;
+    };
+
+    uploadMenu.appendChild(mkItem('Файлы', () => { inputFiles.value = ''; inputFiles.click(); }));
+    uploadMenu.appendChild(mkItem('Папка',  () => { inputFolder.value = ''; inputFolder.click(); }));
+    document.body.appendChild(uploadMenu);
+    setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 10);
+  }
+
+  btn.addEventListener('click', () => {
+    if (!localFsConfig.enabled || btn.classList.contains('uploading')) return;
+    if (uploadMenu) { closeUploadMenu(); return; }
+    openUploadMenu();
+  });
+
+  async function handleFiles(files) {
+    if (!files.length) return;
+    btn.classList.add('uploading');
+    appendActivityLog(`LocalFS upload: starting — ${files.length} file(s)`);
+    let ok = 0, fail = 0;
+    for (const file of files) {
+      const relPath = (file.webkitRelativePath || file.name).replace(/[\\]/g, '/');
+      try {
+        const res = await fetch('/api/localfs/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-Upload-Path': relPath },
+          body: file,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.ok) { ok++; }
+        else { fail++; appendActivityLog(`LocalFS upload: failed — ${relPath}: ${data.error ?? 'unknown error'}`); }
+      } catch (e) {
+        fail++;
+        appendActivityLog(`LocalFS upload: error — ${relPath}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    btn.classList.remove('uploading');
+    appendActivityLog(`LocalFS upload: done — ${ok} saved${fail ? ', ' + fail + ' failed' : ''}`);
+  }
+
+  inputFiles.addEventListener('change',  () => handleFiles(Array.from(inputFiles.files  || [])));
+  inputFolder.addEventListener('change', () => handleFiles(Array.from(inputFolder.files || [])));
+}
 function initAiOpinionButton() {
   const btn = document.getElementById("btn-ai-opinion");
   if (!(btn instanceof HTMLButtonElement) || btn.dataset.bound === "1") return;
@@ -6289,11 +6376,23 @@ function appendAssistantBubbleFromTurn(turn, replyOrdinal, exchangeRootTurnId, b
     setAssistantMessageMarkdown(te, text);
     const imgHint =
       rt === "image" ? apiImageGenerationModelHint(respProvider) : undefined;
+    // Use the exact model id stored in the DB for this turn (responding_model_id).
+    // Append mode suffix so web search / deep research labels stay correct.
+    // Fallback to apiModelHint only when the DB field is absent (old turns).
+    let storedModelHint = null;
+    if (t.responding_model_id) {
+      const mid = String(t.responding_model_id).trim();
+      const modeSuffix =
+        rt === "web"      ? " · web search" :
+        rt === "research" ? " · deep research" :
+        "";
+      storedModelHint = mid + modeSuffix;
+    }
     finalizeAssistantBubble(
       pending,
       text,
       respProvider,
-      imgHint || undefined,
+      imgHint || storedModelHint || undefined,
       replyOrdinal,
     );
   } else {
@@ -7944,6 +8043,8 @@ function bootApp() {
   if (localFsConfig.enabled) {
     localFsModeActive = getLocalFsModeStored();
   }
+  // Sync upload button state after config is known
+  initLocalFsUploadButton();
   // Load OpenRouter per-model prices for accurate cost analytics
   fetchOpenRouterModelEntries().then((entries) => {
     openRouterEntries = entries;
