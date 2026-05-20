@@ -4,6 +4,68 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.10.04)
+
+### LocalFS file upload button
+
+New square button (diskette icon) placed immediately to the right of the LocalFS button. Shares the same `min-height: 2.625rem` as all other badge buttons.
+
+**API (`server/routes/localfs.mjs`):**
+- New `POST /api/localfs/upload` endpoint — accepts raw binary body, relative path in `X-Upload-Path` header, max 32 MB per file
+- Creates intermediate directories with `mkdirSync({ recursive: true })`
+- Response: `{ ok: true, path, sizeBytes }` or `{ ok: false, error }`
+
+**HTML (`index.html`):**
+- `<button id="btn-localfs-upload" class="badge badge-localfs-upload">` with diskette SVG icon
+- Two hidden `<input type="file">` elements: `#localfs-upload-input-files` (multi-file) and `#localfs-upload-input-folder` (webkitdirectory)
+
+**CSS (`src/theme.css`):**
+- `.badge-localfs-upload` — square `2.625rem × 2.625rem`, same green as LocalFS (`hsl(123.6, 84.3%, 27.5%)`), `opacity: 0.55` when disabled
+- `.localfs-upload-menu` — fixed-position mini-menu with two items (Файлы / Папка), closes on outside click
+
+**JS (`src/main.js` — `initLocalFsUploadButton()`):**
+- Enabled/disabled state mirrors `localFsConfig.enabled`
+- Click opens mini-menu anchored above the button; second click closes it
+- Shared `handleFiles(files)` uploads sequentially, logs start + per-file errors + summary to Activity log
+- `webkitRelativePath` used for folder uploads to preserve subfolder structure; `file.name` fallback for individual files
+
+**Files changed:** `server/routes/localfs.mjs`, `index.html`, `src/main.js`, `src/theme.css`.
+
+### Replied model label — fixed on dialog switch (web search / deep research)
+
+`appendAssistantBubbleFromTurn()` now reads `t.responding_model_id` from the DB turn record and passes it as `modelHintOverride` to `finalizeAssistantBubble()`. Previously, the label was resolved from `apiModelHint(providerId)` which reads the **currently selected** model in the UI — leading to incorrect labels after switching dialogs.
+
+For web search and deep research turns, the appropriate suffix is appended based on `request_type`:
+
+```js
+const modeSuffix =
+  rt === "web"      ? " · web search" :
+  rt === "research" ? " · deep research" :
+  "";
+storedModelHint = mid + modeSuffix;
+```
+
+Old turns without `responding_model_id` fall back to the previous `apiModelHint` path.
+
+**Files changed:** `src/main.js`.
+
+### Badge button colors and unified height
+
+All badge buttons now share `min-height: 2.625rem` (previously `2.1rem` for non-OR-slot buttons). This aligns the height of Gemma4, Gemini, Claude, AI opinion, LocalFS, and upload buttons with the two-line OR slot buttons.
+
+Color assignments added to `src/theme.css`:
+- **AI opinion** (inactive): `hsl(213.8, 88.9%, 28.2%)` (dark blue), white text
+- **LocalFS** (all states): `hsl(123.6, 84.3%, 27.5%)` (dark green), white text
+- **LocalFS upload**: same green as LocalFS
+
+**Files changed:** `src/theme.css`.
+
+### Version bump
+
+- `package.json` → **1.10.04**
+
+---
+
 ## Release notes (1.10.03)
 
 ### `openrouter-models.json` — replaces `openrouter-models.txt`
@@ -80,69 +142,6 @@ New section in Settings allows hiding individual provider buttons from the chat 
 ### Version bump
 
 - `package.json` → **1.10.03**
-
-
----
-
-## Release notes (1.10.04)
-
-### LocalFS file upload button
-
-New square button (diskette icon) placed immediately to the right of the LocalFS button. Shares the same `min-height: 2.625rem` as all other badge buttons.
-
-**API (`server/routes/localfs.mjs`):**
-- New `POST /api/localfs/upload` endpoint — accepts raw binary body, relative path in `X-Upload-Path` header, max 32 MB per file
-- Creates intermediate directories with `mkdirSync({ recursive: true })`
-- Response: `{ ok: true, path, sizeBytes }` or `{ ok: false, error }`
-
-**HTML (`index.html`):**
-- `<button id="btn-localfs-upload" class="badge badge-localfs-upload">` with diskette SVG icon
-- Two hidden `<input type="file">` elements: `#localfs-upload-input-files` (multi-file) and `#localfs-upload-input-folder` (webkitdirectory)
-
-**CSS (`src/theme.css`):**
-- `.badge-localfs-upload` — square `2.625rem × 2.625rem`, same green as LocalFS (`hsl(123.6, 84.3%, 27.5%)`), `opacity: 0.55` when disabled
-- `.localfs-upload-menu` — fixed-position mini-menu with two items (Файлы / Папка), closes on outside click
-
-**JS (`src/main.js` — `initLocalFsUploadButton()`):**
-- Enabled/disabled state mirrors `localFsConfig.enabled`
-- Click opens mini-menu anchored above the button; second click closes it
-- Shared `handleFiles(files)` uploads sequentially, logs start + per-file errors + summary to Activity log
-- `webkitRelativePath` used for folder uploads to preserve subfolder structure; `file.name` fallback for individual files
-
-**Files changed:** `server/routes/localfs.mjs`, `index.html`, `src/main.js`, `src/theme.css`.
-
-### Replied model label — fixed on dialog switch (web search / deep research)
-
-`appendAssistantBubbleFromTurn()` now reads `t.responding_model_id` from the DB turn record and passes it as `modelHintOverride` to `finalizeAssistantBubble()`. Previously, the label was resolved from `apiModelHint(providerId)` which reads the **currently selected** model in the UI — leading to incorrect labels after switching dialogs.
-
-For web search and deep research turns, the appropriate suffix is appended based on `request_type`:
-
-```js
-const modeSuffix =
-  rt === "web"      ? " · web search" :
-  rt === "research" ? " · deep research" :
-  "";
-storedModelHint = mid + modeSuffix;
-```
-
-Old turns without `responding_model_id` fall back to the previous `apiModelHint` path.
-
-**Files changed:** `src/main.js`.
-
-### Badge button colors and unified height
-
-All badge buttons now share `min-height: 2.625rem` (previously `2.1rem` for non-OR-slot buttons). This aligns the height of Gemma4, Gemini, Claude, AI opinion, LocalFS, and upload buttons with the two-line OR slot buttons.
-
-Color assignments added to `src/theme.css`:
-- **AI opinion** (inactive): `hsl(213.8, 88.9%, 28.2%)` (dark blue), white text
-- **LocalFS** (all states): `hsl(123.6, 84.3%, 27.5%)` (dark green), white text
-- **LocalFS upload**: same green as LocalFS
-
-**Files changed:** `src/theme.css`.
-
-### Version bump
-
-- `package.json` → **1.10.04**
 
 ---
 
