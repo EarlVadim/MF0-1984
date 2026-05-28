@@ -306,16 +306,15 @@ async function getMemoryGraphPayload() {
     return { nodes: [], links: [] };
   }
   const nodes = await adapter.all(
-    `SELECT id, category, label, blob, embedding FROM memory_graph_nodes ORDER BY category ASC, label COLLATE NOCASE ASC`,
+    `SELECT id, category, label, blob, embedding, embedding_model FROM memory_graph_nodes ORDER BY category ASC, label COLLATE NOCASE ASC`,
   );
   const links = await adapter.all(
     `SELECT id, source_node_id AS source, target_node_id AS target, relation AS label FROM memory_graph_edges`,
   );
   const normalizedNodes = nodes.map(n => ({
     ...n,
-    // Buffer.from() safely handles both Buffer and Uint8Array from different SQLite drivers.
-    // Plain Uint8Array.toString('base64') returns "1,2,3,..." — NOT base64.
-    embedding: n.embedding ? Buffer.from(n.embedding).toString('base64') : null,
+    embedding:       n.embedding ? Buffer.from(n.embedding).toString('base64') : null,
+    embedding_model: n.embedding_model ?? null,
   }));
   return { nodes: normalizedNodes, links };
 }

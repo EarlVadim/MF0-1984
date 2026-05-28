@@ -32,12 +32,19 @@ router.post("/auth/register", async (req, res) => {
     const total = await countUsers();
     const isFirstUser = total === 0;
 
-    // After first user, require either admin session or ALLOW_REGISTRATION env flag
+    // After first user, require either admin session or matching REGISTRATION_SECRET
     if (!isFirstUser) {
-      const allowOpen = String(process.env.ALLOW_REGISTRATION ?? "").trim().toLowerCase() === "true";
-      const isAdmin   = req.user?.role === "admin";
-      if (!allowOpen && !isAdmin)
-        return res.status(403).json({ ok: false, error: "Registration is closed" });
+      const isAdmin = req.user?.role === "admin";
+      if (!isAdmin) {
+        const secret = String(process.env.REGISTRATION_SECRET ?? "").trim();
+        const provided = String(req.body?.registrationSecret ?? "").trim();
+        if (!secret) {
+          return res.status(403).json({ ok: false, error: "Registration is closed" });
+        }
+        if (!provided || provided !== secret) {
+          return res.status(403).json({ ok: false, error: "Invalid registration code" });
+        }
+      }
     }
 
     const role = isFirstUser ? "admin" : "user";

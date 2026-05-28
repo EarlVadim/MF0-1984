@@ -2,13 +2,13 @@
 
 **MF0-1984** is a **local-first** single-page app for multi-provider LLM chat, structured workflows (Intro / Access / Rules / Help), a **Memory tree** (3D graph over SQLite), **themes** and dialogs, **analytics**, **favorites**, and **project profile** backup/restore (`.mf` bundles).
 
-This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload**, **login/password authentication**, **HTTPS**, **semantic memory search**, and **per-model analytics**.
+This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload** and **extended tool set** (bash, find, move, copy, mkdir), **login/password authentication**, **HTTPS**, **semantic memory search**, **per-model analytics**, and a **stop-generation button**.
 
 | | |
 |---|---|
 | **UI dev server** | Vite — default port **1984** (`vite.config.js`) |
 | **Local API** | Node + `better-sqlite3` — default port **35184** (`API_PORT`) |
-| **Version** | **1.10.04** |
+| **Version** | **1.10.07** |
 | **Upstream** | [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984) |
 
 For architecture, data model, and operations see **[HANDOFF.md](./HANDOFF.md)**.
@@ -203,9 +203,12 @@ Three provider slots route through the OpenRouter API, each with its own indepen
 
 All three slots share the same `OPENROUTER_API_KEY`. Each slot's **selected model is saved per-dialog** — switching dialogs restores the model that was active in that dialog.
 
-#### Configuring available models: `openrouter-models.json`
+#### Configuring available models
 
-Add or remove models by editing **`openrouter-models.json`** in the project root. No rebuild required — the file is read by the server on every API call and cached for 5 minutes.
+Models can be managed in two ways:
+
+1. **WebUI editor** — click **Settings → OpenRouter models → Edit models** to open a full CRUD editor with a two-panel layout (model list on the left, edit form on the right). Changes are saved to `openrouter-models.json` immediately and the runtime cache is invalidated automatically. No rebuild or restart required.
+2. **Manual edit** — edit **`openrouter-models.json`** in the project root directly. No rebuild required — the file is read by the server on every API call and cached for 5 minutes.
 
 ```json
 [
@@ -335,7 +338,9 @@ When `LOCALFS_ENABLED=true`, any model (no function-calling API required) can re
 <tool>delete_file("old.txt")</tool>
 ```
 
-**Enabling:** click the **LocalFS** button in the composer badge bar. The button is disabled if `LOCALFS_ENABLED` is not set. The mode is saved per-dialog.
+**Enabling:** click the **LocalFS** button in the composer badge bar.
+
+**Tool compatibility:** the tool mechanism uses plain XML-like text tags parsed client-side — no function-calling API required. Works with any instruction-following model (DeepSeek, Claude, GPT-4o, Gemini, Qwen, Llama 70B+). Models run through OpenRouter are fully supported. Larger context windows (128K+) handle long agentic loops better. The button is disabled if `LOCALFS_ENABLED` is not set. The mode is saved per-dialog.
 
 **Security:** all paths are resolved inside `LOCALFS_ROOT`. Path traversal (`../`) is blocked server-side. LocalFS and AI opinion mode are mutually exclusive.
 
@@ -344,12 +349,18 @@ When `LOCALFS_ENABLED=true`, any model (no function-calling API required) can re
 | Tool | Description |
 |---|---|
 | `list_files(path, "recursive"?, ext?)` | List files/dirs; optional recursive flag and extension filter |
+| `find_files(pattern, path?)` | Find files by glob pattern (`*.js`, `**/*.mjs`) across the tree |
 | `read_file(path)` | Read a text file (max 4 MB) |
 | `read_lines(path, from, to)` | Read a line range (max 2 000 lines, with line numbers) |
 | `grep_file(path, pattern, context?)` | Search by substring or regex with N lines of context |
 | `write_file(path, content)` | Write or overwrite a file (max 4 MB) |
 | `patch_file(path, old_str, new_str)` | Replace a unique string — errors if 0 or 2+ matches |
-| `delete_file(path)` | Delete a file (directories not supported) |
+| `move_file(from, to)` | Move or rename a file or directory |
+| `copy_file(from, to)` | Copy a file or directory |
+| `make_dir(path)` | Create a directory tree (recursive) |
+| `remove_dir(path, "recursive"?)` | Remove a directory; pass `recursive` to remove with contents |
+| `delete_file(path)` | Delete a file |
+| `bash(cmd, cwd?)` | Run a shell command in the sandbox root (or a subdirectory); timeout 30 s, output 512 KB; `sudo`, `curl`, `wget`, network tools blocked |
 
 ---
 
@@ -385,6 +396,14 @@ LocalFS tool mode is automatically disabled when AI opinion is activated (and vi
 
 ---
 
+## Stop generation button
+
+A red square button (■) appears to the right of the send button while a response is streaming. Clicking it aborts the current request via `AbortController` and keeps whatever partial text was already received. The send button reappears automatically when generation ends (normally or by abort).
+
+The abort signal is passed through `completeChatMessageStreaming` → `callLlmStream` → `fetch` — so the HTTP request is cancelled at the network level, not just ignored client-side.
+
+---
+
 ## Analytics
 
 Token tracking and cost estimation work for all providers.
@@ -409,7 +428,8 @@ The server caches the model list for **5 minutes** — edits to `openrouter-mode
 | `src/` | Browser ES modules — chat, settings, memory tree, persistence, tools |
 | `src/memoryTreeRouter.js` | Hybrid memory retrieval pipeline (lexical + semantic + LLM rerank) |
 | `src/memoryGraphSemanticSearch.js` | Browser-side embedding + cosine similarity for semantic layer |
-| `src/localFsTools.js` | Client-side tool call parser and executor |
+| `src/openrouterModelsEditor.js` | CRUD UI for OpenRouter model list (modal, two-panel layout) |
+| `src/localFsTools.js` | Client-side tool call parser and executor (14 tools including bash) |
 | `src/userChatModels.js` | Model selection storage (global + per-dialog) |
 | `src/modelContextConfig.js` | Per-provider context budget (`maxInputTokens`, `recentMessageCount`) |
 | `openrouter-models.json` | OpenRouter model list with prices, short names, and per-mode tool config |
@@ -450,11 +470,14 @@ Visibility preference is stored in `localStorage` under `mf0.badge.visibility`.
 | Provider button visibility | All shown | Per-button show/hide toggle in Settings |
 | File system access | — | LocalFS sandbox (7 tools, works with any model) |
 | LocalFS file upload | — | Upload button with file / folder picker; preserves subfolder structure |
+| LocalFS tool set | 7 tools | 14 tools including `bash`, `find_files`, `move_file`, `copy_file`, `make_dir`, `remove_dir` |
+| Stop generation | — | Red ■ button aborts streaming via AbortController; keeps partial text |
 | AI opinion participants | All providers | Configurable checkboxes in Settings |
 | Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot (persisted in DB) |
 | OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.json` |
 | Memory retrieval | Lexical + LLM rerank | + Semantic layer (pplx-embed-v1-4b, cosine, pool boosting) |
 | Web Search / Research | — | OR slots support `openrouter:web_search` + `openrouter:web_fetch` server tools, configured per-model in `openrouter-models.json` |
+| OR model management | Edit JSON file | Full CRUD WebUI editor in Settings with responsive layout |
 | Authentication | — | Login/password, session cookies, admin/user roles |
 | HTTPS | — | Standalone TLS proxy, auto self-signed cert for dev |
 

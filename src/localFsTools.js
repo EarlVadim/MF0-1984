@@ -53,27 +53,37 @@ Always use the exact XML-like syntax below — one call per line, no extra text 
 Available tools:
 
   LIST & NAVIGATE
-  <tool>list_files(".")</tool>                         — list files in root directory
-  <tool>list_files("src")</tool>                       — list files in a subdirectory
-  <tool>list_files(".", recursive, "js,ts,mjs")</tool> — recursive tree, filter by extension
-  <tool>list_files("src", recursive)</tool>            — full recursive tree
+  <tool>list_files(".")</tool>                                      — list files in root directory
+  <tool>list_files("src")</tool>                                    — list files in a subdirectory
+  <tool>list_files(".", recursive, "js,ts,mjs")</tool>              — recursive tree, filter by extension
+  <tool>find_files("*.md")</tool>                                   — find files matching glob in root
+  <tool>find_files("**/*.js", "src")</tool>                         — find recursively under src/
 
   READ
-  <tool>read_file("filename.txt")</tool>               — read entire file (up to 4 MB)
-  <tool>read_lines("src/main.js", 100, 200)</tool>     — read lines 100-200 (1-indexed)
-  <tool>read_lines("src/main.js", 6590, 6640)</tool>   — read a specific range
+  <tool>read_file("filename.txt")</tool>                            — read entire file (up to 4 MB)
+  <tool>read_lines("src/main.js", 100, 200)</tool>                  — read lines 100-200 (1-indexed)
 
   SEARCH
-  <tool>grep_file("src/main.js", "turnPayload")</tool>             — find lines containing text
-  <tool>grep_file("src/main.js", "turnPayload", 3)</tool>          — with 3 lines of context
+  <tool>grep_file("src/main.js", "turnPayload")</tool>              — find lines containing text
+  <tool>grep_file("src/main.js", "turnPayload", 3)</tool>           — with 3 lines of context
   <tool>grep_file("src/main.js", "async function \\w+", 0, regex)</tool> — regex search
 
   WRITE & EDIT
-  <tool>write_file("path", "content")</tool>           — create or overwrite a file
-  <tool>patch_file("path", "old fragment", "new fragment")</tool>  — replace unique fragment
+  <tool>write_file("path", "content")</tool>                        — create or overwrite a file
+  <tool>patch_file("path", "old fragment", "new fragment")</tool>   — replace unique fragment
 
-  DELETE
-  <tool>delete_file("filename.txt")</tool>             — delete a file
+  FILE OPERATIONS
+  <tool>move_file("old/path.js", "new/path.js")</tool>              — move or rename file/directory
+  <tool>copy_file("src/file.js", "dst/file.js")</tool>              — copy file or directory
+  <tool>delete_file("filename.txt")</tool>                          — delete a file
+  <tool>make_dir("path/to/dir")</tool>                              — create directory (recursive)
+  <tool>remove_dir("path/to/dir")</tool>                            — remove empty directory
+  <tool>remove_dir("path/to/dir", recursive)</tool>                 — remove directory with contents
+
+  SHELL
+  <tool>bash("node --check src/main.js")</tool>                     — run command in sandbox root
+  <tool>bash("npm test", "src")</tool>                              — run command in subdirectory
+  <tool>bash("python3 -c \"print('hello')\"")                     — inline script
 
 Rules:
 - Paths are relative to the sandbox root — never use absolute paths or ../
@@ -83,6 +93,8 @@ Rules:
 - Never invent file contents — only report what tools return
 - If a tool returns an error, tell the user what went wrong
 - To understand a large file: first grep for relevant symbols, then read_lines around the hits
+- After writing or patching code: use bash("node --check <file>") to verify syntax
+- bash is sandboxed: no sudo, no curl/wget, no network tools; timeout 30s
 
 MULTI-LINE PATCH SYNTAX (preferred for patch_file with code blocks):
 Instead of patch_file() with escaped strings, use the <patch> tag for multi-line replacements:
@@ -332,6 +344,86 @@ async function executeToolCall(call) {
       const data = await res.json();
       if (!data.ok) return `Error: ${data.error}`;
       return `File "${data.path}" deleted successfully.`;
+    }
+
+    if (name === "find_files") {
+      const pattern = args[0] ?? "*";
+      const path    = args[1] ?? ".";
+      const params  = new URLSearchParams({ pattern, path });
+      const res  = await fetch(`/api/localfs/find?${params}`);
+      const data = await res.json();
+      if (!data.ok) return `Error: ${data.error}`;
+      if (!data.results.length) return `No files matching "${pattern}".`;
+      const lines = data.results.map((e) => `${e.path}${e.type === "dir" ? "/" : ""}`).join("\n");
+      return `Found ${data.results.length} result(s)${data.truncated ? " (truncated)" : ""}:\n${lines}`;
+    }
+
+    if (name === "move_file") {
+      const from = args[0] ?? "", to = args[1] ?? "";
+      if (!from || !to) return "Error: from and to required";
+      const res  = await fetch("/api/localfs/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to }),
+      });
+      const data = await res.json();
+      if (!data.ok) return `Error: ${data.error}`;
+      return `Moved "${data.from}" → "${data.to}".`;
+    }
+
+    if (name === "copy_file") {
+      const from = args[0] ?? "", to = args[1] ?? "";
+      if (!from || !to) return "Error: from and to required";
+      const res  = await fetch("/api/localfs/copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to }),
+      });
+      const data = await res.json();
+      if (!data.ok) return `Error: ${data.error}`;
+      return `Copied "${data.from}" → "${data.to}".`;
+    }
+
+    if (name === "make_dir") {
+      const path = args[0] ?? "";
+      if (!path) return "Error: path required";
+      const res  = await fetch("/api/localfs/mkdir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const data = await res.json();
+      if (!data.ok) return `Error: ${data.error}`;
+      return `Directory "${data.path}" created.`;
+    }
+
+    if (name === "remove_dir") {
+      const path      = args[0] ?? "";
+      const recursive = String(args[1] ?? "").trim() === "recursive";
+      if (!path) return "Error: path required";
+      const params = new URLSearchParams({ path, recursive: recursive ? "1" : "0" });
+      const res  = await fetch(`/api/localfs/rmdir?${params}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.ok) return `Error: ${data.error}`;
+      return `Directory "${data.path}" removed${recursive ? " (recursive)" : ""}.`;
+    }
+
+    if (name === "bash") {
+      const cmd = args[0] ?? "";
+      const cwd = args[1] ?? undefined;
+      if (!cmd) return "Error: cmd required";
+      const res  = await fetch("/api/localfs/bash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cmd, cwd }),
+      });
+      const data = await res.json();
+      if (!data.ok && data.error) return `Error: ${data.error}`;
+      const parts = [];
+      if (data.stdout?.trim()) parts.push(data.stdout.trim());
+      if (data.stderr?.trim()) parts.push(`[stderr]\n${data.stderr.trim()}`);
+      if (!parts.length) parts.push(data.exitCode === 0 ? "(no output)" : "(no output, non-zero exit)");
+      return `Exit ${data.exitCode}:\n${parts.join("\n")}`;
     }
 
     return `Error: unknown tool "${name}"`;

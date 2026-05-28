@@ -727,7 +727,7 @@ export async function extractChatInterestSketchForIngest(providerId, apiKey, use
     messages: [{ role: "user", content: userBlock }],
     system,
     temperature: 0.12,
-    maxTokens: 900,
+    maxTokens: 2400,
     responseFormat: providerId === "openai" ? { type: "json_object" } : undefined,
     requestKind: "interests_sketch",
     analytics,

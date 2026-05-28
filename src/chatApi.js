@@ -22,13 +22,18 @@ import { fetchOpenRouterModelEntries } from "./fetchRemoteModelLists.js";
 // Loaded once from /api/settings/openrouter-models and refreshed on demand.
 let _orModelCache = /** @type {Map<string, object>|null} */ (null);
 
-async function getOrModelCache() {
+export async function getOrModelCache() {
   if (_orModelCache) return _orModelCache;
   const entries = await fetchOpenRouterModelEntries().catch(() => []);
   _orModelCache = new Map(entries.map((e) => [e.id, e]));
   // Invalidate after 5 minutes so edits to JSON are picked up
   setTimeout(() => { _orModelCache = null; }, 5 * 60_000);
   return _orModelCache;
+}
+
+/** Force-invalidate the OR model cache (call after editing models in the UI). */
+export function invalidateOrModelCache() {
+  _orModelCache = null;
 }
 
 /**

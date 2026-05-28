@@ -4,6 +4,181 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.10.07)
+
+### OpenRouter Models WebUI Editor
+
+A full CRUD editor for the OpenRouter model list (`openrouter-models.json`) accessible from **Settings → OpenRouter models → Edit models**. Previously, adding or removing models required manually editing the JSON file on disk.
+
+**UI Layout:**
+
+- **Desktop/tablet (> 640 px):** Two-panel layout inside a modal dialog — left panel (~1/3 width) shows a scrollable list of models sorted by `shortName`, right panel (~2/3 width) shows the edit form for the selected model.
+- **Mobile (≤ 640 px):** Full-screen bottom-sheet modal with vertically stacked panels. Model list at top, edit form below. Action buttons are sticky at the bottom of the viewport.
+
+**Operations:**
+
+| Action | How |
+|---|---|
+| View model details | Click a model in the left panel → right panel populates with all fields |
+| Edit a model | Change any field in the form → **Save** button activates (dirty-state tracking) |
+| Add a model | Click **+ Add** → prompted for model ID → entry created with defaults → edit form opens |
+| Delete a model | Select model → click **Delete** → confirm |
+
+**Edit form fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| Model ID | text | Read-only (primary key) |
+| Short Name | text | Label shown on OR slot button |
+| Description | text | Price hint on button (line 2) |
+| Input $/1M tokens | number | Step 0.001 |
+| Output $/1M tokens | number | Step 0.001 |
+| Rerank Model | text | Optional model ID for reranking |
+| Modes (dialogue/search/research) | structured | Each mode has a model ID field and a Tools JSON textarea |
+
+The Tools JSON textarea accepts a JSON array of tool objects (e.g. `[{ "type": "openrouter:web_search", "parameters": { ... } }]`). Invalid JSON is silently ignored on save — existing tools are preserved.
+
+**Dirty state & unsaved changes:** Switching models or closing the modal with unsaved changes triggers a confirmation dialog. The **Save** button is disabled unless changes have been made.
+
+**New file:**
+
+| File | Role |
+|---|---|
+| `src/openrouterModelsEditor.js` | Full editor module — state, rendering, API calls, event wiring |
+
+**API endpoints added (`server/routes/settings.mjs`):**
+
+| Method | Route | Description |
+|---|---|---|
+| `PUT` | `/api/settings/openrouter-models` | Replace entire model array. Body: `{ models: [...] }` |
+| `POST` | `/api/settings/openrouter-models` | Add a single model entry. Body: model object. Returns 409 on duplicate `id` |
+| `DELETE` | `/api/settings/openrouter-models/:id` | Delete a model by ID. Returns 404 if not found |
+
+All three endpoints sanitize input through `sanitizeModelEntry()` (validates `id`, trims strings, coerces numbers) and persist to `openrouter-models.json` via `saveOpenRouterModels()` (atomic-ish `writeFileSync`).
+
+The existing `GET /api/settings/openrouter-models` endpoint is unchanged — the editor fetches data from it on open.
+
+**Cache invalidation:** After every save/add/delete in the editor, `invalidateOrModelCache()` is called (clears the 5-minute `_orModelCache` in `src/chatApi.js`) and the runtime `openRouterEntries` array and badge labels in `src/main.js` are refreshed via the `afterSave` callback.
+
+**HTML (`index.html`):**
+
+- New Settings section: `<section id="settings-or-models">` with an "Edit models" button
+- New modal: `<div id="or-models-modal">` containing overlay, dialog, header (title + close button), body (list panel + form panel), footer (Save + Delete buttons)
+
+**CSS (`src/theme.css`):**
+
+- `.or-models-modal` — full-screen overlay with centered dialog
+- `.or-models-modal-dialog` — `max-width: 800px`, `max-height: 80vh`, flexbox two-column layout
+- `.or-models-panel-list` — left panel with scrollable `.or-models-list`, each item shows shortName + desc
+- `.or-models-panel-form` — right panel with field rows and mode blocks
+- `.or-models-mode-block` — collapsible mode section with model input + tools textarea
+- `.or-models-list-item.selected` — highlighted with `var(--accent)` border
+- `.or-models-save-btn:disabled` / `.or-models-delete-btn:disabled` — greyed out, `cursor: not-allowed`
+- Dark mode: `.dark .or-models-modal-dialog` override
+- **Mobile (`@media max-width: 640px`):** Full-screen bottom-sheet layout, vertical stacking of panels, sticky action bar at bottom, adjusted font sizes and padding
+
+**Integration (`src/main.js`):**
+
+- `initOpenRouterModelsEditor()` called inside `initSettingsModal()` with `afterSave` callback that:
+  1. Calls `invalidateOrModelCache()` (from `chatApi.js`)
+  2. Reads `getOrModelsCache()` (fresh data from editor)
+  3. Updates `openRouterEntries`, calls `setOpenRouterModelPrices()`, calls `updateOpenRouterBadgeLabel()`
+  4. Falls back to `fetchOpenRouterModelEntries()` if the editor cache is empty
+
+**New exports from `src/chatApi.js`:**
+
+- `invalidateOrModelCache()` — sets `_orModelCache = null`, forcing a fresh fetch on next OR slot use
+
+**Files changed:** `server/routes/settings.mjs`, `src/openrouterModelsEditor.js` (new), `index.html`, `src/theme.css`, `src/main.js`, `src/chatApi.js`.
+
+### Version bump
+
+- `package.json` → **1.10.07**
+
+---
+
+## Release notes (1.10.06)
+
+### Extended LocalFS tool set
+
+Seven new tools added to `src/localFsTools.js` (client) and `server/routes/localfs.mjs` (server).
+
+**New client tools (`src/localFsTools.js`):**
+
+| Tool call | API endpoint | Description |
+|---|---|---|
+| `find_files(pattern, path?)` | `GET /api/localfs/find` | Glob search (`*`, `**`); returns path + type |
+| `move_file(from, to)` | `POST /api/localfs/move` | Rename/move file or directory |
+| `copy_file(from, to)` | `POST /api/localfs/copy` | Copy file or directory (recursive) |
+| `make_dir(path)` | `POST /api/localfs/mkdir` | Create directory tree |
+| `remove_dir(path, recursive?)` | `DELETE /api/localfs/rmdir` | Remove directory |
+| `bash(cmd, cwd?)` | `POST /api/localfs/bash` | Run shell command in sandbox |
+
+**`bash` security constraints (`server/routes/localfs.mjs`):**
+- CWD always resolved inside `LOCALFS_ROOT` via `safePath()`
+- Blocked keywords regex: `sudo`, `su`, `curl`, `wget`, `nc`, `ssh`, `scp`, `chmod +s`, `rm -rf /`, writes to `/dev/sd*`, `/proc`, `/sys`
+- `execSync` timeout: 30 s (`BASH_TIMEOUT_MS`)
+- Max output buffer: 512 KB (`BASH_MAX_OUTPUT`); truncated with `[...truncated]` marker
+- `HOME` env overridden to `LOCALFS_ROOT` to prevent accidental writes outside sandbox
+- Note: actual network isolation must be enforced at OS/firewall level
+
+**System prompt:** updated with new tool examples and rule: *"After writing or patching code: use `bash("node --check <file>")` to verify syntax"*.
+
+**Tool compatibility:** uses plain `<tool>...</tool>` text tags — no function-calling API needed. Works with any instruction-following model via OpenRouter or direct API. Recommended: DeepSeek V4, Claude Sonnet, GPT-4o, Gemini 2.5 (large context preferred for multi-step loops).
+
+**New server imports:** `cpSync`, `renameSync`, `rmSync` from `node:fs`; `execSync` from `node:child_process`; `basename`, `dirname` from `node:path`.
+
+**Files changed:** `server/routes/localfs.mjs`, `src/localFsTools.js`.
+
+### Stop generation button
+
+A red ■ button (`#btn-chat-stop`, class `.stop-btn`) appears to the right of the send button while streaming is active. Send button is hidden during streaming; restored on completion or abort.
+
+**Flow:**
+1. `beginChatStream()` — creates `new AbortController()`, stores in `chatAbortController`, swaps buttons
+2. Signal passed as `abortSignal` in `chatOpts` → `completeChatMessageStreaming` → `callLlmStream` → `fetch`
+3. On abort: `catch` branch detects `_chatSignal.aborted`, keeps `buf` (partial text) as `fullText`, skips non-stream fallback
+4. `endChatStream()` in `finally` — nulls controller, restores buttons
+5. Activity log: `"Chat: generation stopped by user"`
+
+**CSS (`.stop-btn`):** same height as `.send-btn` via `var(--input-bar-row-height)`, width = height (square), `background: hsl(0, 72%, 42%)`, white icon.
+
+**Files changed:** `src/main.js`, `src/theme.css`, `index.html`.
+
+### By-model analytics table — sortable columns
+
+Clicking any column header in the **By model — all time** table sorts by that column. Click again to reverse. Default sort: Est. cost DESC.
+
+**Implementation (`src/analyticsDashboard.js`):**
+- Module-level `_modelSortCol` (default `6` = cost) and `_modelSortAsc` (default `false`)
+- `MODEL_COLS` array — column definitions with label, key function, and `text` flag
+- `buildModelTableHeaders()` — renders `<th data-col="N">` with ▲/▼ indicator on active column
+- `buildModelTableRows(arr)` — sorts a copy of the array, renders rows
+- Click delegated to `<thead>` — updates sort state, re-renders only `thead tr` and `tbody`
+- Text columns default ascending on first click; numeric columns default descending
+
+**Files changed:** `src/analyticsDashboard.js`, `src/theme.css`.
+
+### Registration code (`REGISTRATION_SECRET`)
+
+Self-registration after the first admin account now requires a shared secret in `.env`.
+
+| Scenario | Allowed? |
+|---|---|
+| First user ever | Always — no code needed |
+| Admin session | Always — no code needed |
+| Non-admin, correct code | Yes |
+| Non-admin, wrong/missing code | 403 `Invalid registration code` |
+| Non-admin, secret not set | 403 `Registration is closed` |
+
+**Files changed:** `server/routes/auth.mjs`, `index.html` (new `auth-reg-secret` field, updated CSP hash).
+
+### Version bump
+
+- `package.json` → **1.10.06**
+
+---
+
 ## Release notes (1.10.04)
 
 ### LocalFS file upload button
@@ -937,10 +1112,10 @@ Settings → **Project Cache** no longer shows a single combined **“files & pi
 | `src/fetchRemoteModelLists.js` | Provider-specific “list models” HTTP calls from the browser (keys from `import.meta.env` in dev). |
 | `src/modelEnv.js` | Returns `"server-proxy"` placeholder for all provider keys — real keys live in `process.env` on the server. |
 | `src/modelContextConfig.js` | Per-provider context budget: `maxInputTokens` and `recentMessageCount`. Edit to tune context depth per slot. |
-| `src/localFsTools.js` | `<tool>…</tool>` parser and tool executor for LocalFS mode. |
+| `src/localFsTools.js` | `<tool>…</tool>` parser and tool executor — 14 tools including bash, find, move, copy, mkdir, rmdir. |
 | `src/memoryGraphSemanticSearch.js` | Browser-side embedding + cosine similarity for memory router semantic layer. |
 | `server/routes/auth.mjs` | `/api/auth/*` endpoints: register, login, logout, me, user management. |
-| `server/routes/localfs.mjs` | LocalFS sandbox REST API, path traversal protection, binary file upload (`POST /api/localfs/upload`). |
+| `server/routes/localfs.mjs` | LocalFS sandbox REST API, path traversal protection, binary file upload, bash execution, find/move/copy/mkdir/rmdir. |
 | `server/middleware/auth.mjs` | `attachSession` (global), `requireAuth`, session cookie helpers. |
 | `server/db/auth.mjs` | User + session CRUD, password hashing (SHA-512 + 100k iter + salt). Lazy adapter load. |
 | `server/https-proxy.mjs` | Standalone HTTPS reverse proxy, auto self-signed cert generation. |
@@ -1153,6 +1328,8 @@ The API is an **Express 5** app with twelve route modules mounted at `/api`. Not
 | OR slot badges show "(no key)" | Check `OPENROUTER_API_KEY` is set in `.env`. Verify `server/routes/settings.mjs` returns `{ "or-1": true }` (not `{ openrouter: true }`). Check `src/modelEnv.js` reads `cfg["or-1"]` not `cfg.openrouter`. |
 | OR slot badge label doesn't update on dialog switch | `serverOrModels` must be declared with `let` before the `try` block in the dialog-open handler in `main.js` so the `requestAnimationFrame` closure can access it. |
 | Login screen not appearing | Check `GET /api/auth/me` returns 401. Verify `attachSession` middleware is registered in `api.mjs`. Check CSP hash in `index.html` matches the inline auth script. |
+| `bash` tool blocked | Command matches `BASH_BLOCKED_RE` — contains sudo, curl, wget, or other blocked keywords. Rephrase without them. |
+| `bash` timeout | Command ran longer than 30 s. Split into smaller steps. |
 | Upload button disabled | Check `LOCALFS_ENABLED=true` in `.env` and that `mf-lab-api` was restarted. `GET /api/localfs/config` should return `{ "enabled": true }`. |
 | Upload button — folder upload shows browser warning | Expected browser behaviour for `webkitdirectory`; cannot be suppressed. |
 | All reply timestamps show same time | `t.assistant_message_at` is `null` for turns from API scripts that omitted the field; fixed in `server/routes/themes.mjs` (1.10.03). |

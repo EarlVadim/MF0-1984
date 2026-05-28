@@ -9,7 +9,7 @@
     />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'sha256-WoDwLCeN20VPOypht6p8DQ2Pa8VqeUH9o6CjuRBWb5Q='; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* http://localhost:* https: ws: wss:; img-src 'self' data: blob: https: http:; font-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'"
+      content="default-src 'self'; script-src 'self' 'sha256-Uycf94GeJr+oOBhOfzgzg7eXITIydONJcwYpDbexs8Q='; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* http://localhost:* https: ws: wss:; img-src 'self' data: blob: https: http:; font-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'"
     />
     <title>MF0-1984</title>
     <script src="/pre-app-boot.js"></script>
@@ -238,6 +238,20 @@
               <p class="settings-modal-hint">Choose which provider buttons appear in the chat toolbar.</p>
               <div id="settings-badge-visibility" class="settings-badge-visibility"></div>
             </section>
+                        <section class="settings-modal-section" aria-labelledby="settings-heading-or-models">
+              <h3 class="settings-modal-section-title" id="settings-heading-or-models">OpenRouter models</h3>
+              <p class="settings-modal-hint">Manage the list of models available for OR Slot 1 / 2 / 3.</p>
+              <div class="settings-modal-row-btns">
+                <button type="button" class="btn settings-modal-action" id="settings-or-models-btn">
+                  OpenRouter Models…
+                </button>
+              </div>
+            </section>
+                        <section class="settings-modal-section" aria-labelledby="settings-heading-rerank-models">
+              <h3 class="settings-modal-section-title" id="settings-heading-rerank-models">Memory router model</h3>
+              <p class="settings-modal-hint">Model used for memory tree rerank and title scan for each provider. For OR slots configure <code>rerankModel</code> in the OpenRouter Models editor.</p>
+              <div id="settings-rerank-models" class="settings-rerank-models"></div>
+            </section>
                         <section class="settings-modal-section" aria-labelledby="settings-heading-ai-settings">
               <div class="settings-ai-section-head">
                 <h3 class="settings-modal-section-title settings-ai-section-title" id="settings-heading-ai-settings">
@@ -361,6 +375,49 @@
                 <button type="button" class="btn settings-modal-action" id="settings-project-cache-confirm-yes">
                   Yes
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OpenRouter Models Editor Modal -->
+      <div
+        id="or-models-modal"
+        class="or-models-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="or-models-modal-title"
+        hidden
+      >
+        <div class="or-models-modal-overlay" id="or-models-modal-overlay" aria-hidden="true"></div>
+        <div class="or-models-modal-dialog">
+          <div class="or-models-modal-head">
+            <span class="or-models-modal-title" id="or-models-modal-title">OpenRouter Models</span>
+            <div class="or-models-modal-head-actions">
+              <button type="button" class="btn-ghost btn-ghost-icon" id="or-models-modal-close" aria-label="Close">
+                <svg class="btn-icon-svg" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="or-models-modal-body">
+            <div class="or-models-panel-list" id="or-models-list-panel">
+              <div class="or-models-panel-list-head">
+                <span class="or-models-panel-list-title">Models</span>
+                <button type="button" class="btn or-models-add-btn" id="or-models-add-btn" aria-label="Add model">+ Add</button>
+              </div>
+              <div class="or-models-list" id="or-models-list" role="listbox" aria-label="Model list"></div>
+            </div>
+            <div class="or-models-panel-form" id="or-models-form-panel">
+              <div class="or-models-form" id="or-models-form">
+                <div class="or-models-form-empty">Select a model to edit, or add a new one.</div>
+              </div>
+              <div class="or-models-form-actions">
+                <button type="button" class="btn or-models-save-btn" id="or-models-save-btn" disabled>Save</button>
+                <button type="button" class="btn or-models-delete-btn" id="or-models-delete-btn" disabled>Delete</button>
               </div>
             </div>
           </div>
@@ -1301,6 +1358,9 @@
                   </button>
                 </div>
                 <button type="button" class="send-btn" id="btn-chat-send" aria-label="Send message">↑</button>
+                <button type="button" class="stop-btn" id="btn-chat-stop" aria-label="Stop generation" title="Stop generation" style="display:none">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+                </button>
                 <button
                   type="button"
                   class="composer-voice-btn"
@@ -1484,7 +1544,7 @@
     </div>
 
     <script type="module" src="/src/main.js"></script>
-	<!-- ── Auth Gate ──────────────────────────────────────────────────── -->
+        <!-- ── Auth Gate ──────────────────────────────────────────────────── -->
     <div id="auth-gate" style="display:none;position:fixed;inset:0;z-index:99999;
          background:var(--bg,#0e0e10);align-items:center;justify-content:center;
          font-family:inherit;">
@@ -1506,6 +1566,10 @@
             style="padding:11px 14px;border-radius:8px;border:1px solid var(--border,#333);
                    background:var(--input-bg,#1a1a1e);color:var(--fg,#e8e8ea);
                    font-size:14px;outline:none;width:100%;box-sizing:border-box;" />
+          <input id="auth-reg-secret" type="password" placeholder="Registration code"
+            style="display:none;padding:11px 14px;border-radius:8px;border:1px solid var(--border,#333);
+                   background:var(--input-bg,#1a1a1e);color:var(--fg,#e8e8ea);
+                   font-size:14px;outline:none;width:100%;box-sizing:border-box;" />
           <button id="auth-submit"
             style="padding:12px;border-radius:8px;border:none;
                    background:var(--accent,#7c5cfc);color:#fff;font-size:14px;font-weight:600;
@@ -1520,9 +1584,9 @@
         <div id="auth-register-note" style="display:none;margin-top:14px;padding:10px 14px;
              background:rgba(124,92,252,.1);border:1px solid rgba(124,92,252,.25);
              border-radius:8px;font-size:12px;color:var(--muted,#888);line-height:1.5;">
-          First registered user becomes <strong style="color:var(--fg,#e8e8ea)">admin</strong>.
-          Subsequent: admin approval or
-          <code style="background:rgba(255,255,255,.06);padding:1px 4px;border-radius:4px;">ALLOW_REGISTRATION=true</code> in .env
+          First registered user becomes <strong style="color:var(--fg,#e8e8ea)">admin</strong> (no code needed).
+          For subsequent accounts, enter the registration code set via
+          <code style="background:rgba(255,255,255,.06);padding:1px 4px;border-radius:4px;">REGISTRATION_SECRET</code> in .env
         </div>
       </div>
     </div>
@@ -1539,6 +1603,7 @@
       const regNote = document.getElementById("auth-register-note");
       const userIn = document.getElementById("auth-username");
       const passIn = document.getElementById("auth-password");
+      const secretIn = document.getElementById("auth-reg-secret");
       function showError(msg) { errEl.textContent = msg; errEl.style.display = "block"; }
       function clearError() { errEl.style.display = "none"; }
       function setMode(m) {
@@ -1549,12 +1614,15 @@
           toggleBtn.textContent = "Sign In";
           toggleHint.textContent = "Already have an account?";
           regNote.style.display = "block";
+          secretIn.style.display = "block";
         } else {
           subtitle.textContent = "Sign in to continue";
           submitBtn.textContent = "Sign In";
           toggleBtn.textContent = "Register";
           toggleHint.textContent = "No account yet?";
           regNote.style.display = "none";
+          secretIn.style.display = "none";
+          secretIn.value = "";
         }
       }
       toggleBtn.addEventListener("click", () => setMode(mode === "login" ? "register" : "login"));
@@ -1568,7 +1636,7 @@
           const res = await fetch(API + "/" + mode, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password }),
+            body: JSON.stringify({ username, password, ...(mode === "register" ? { registrationSecret: secretIn.value } : {}) }),
           });
           const data = await res.json();
           if (!data.ok) { showError(data.error || "Unknown error"); return; }
@@ -1582,7 +1650,7 @@
         }
       }
       submitBtn.addEventListener("click", submit);
-      [userIn, passIn].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") submit(); }));
+      [userIn, passIn, secretIn].forEach(el => el.addEventListener("keydown", e => { if (e.key === "Enter") submit(); }));
       fetch(API + "/me").then(r => r.json()).then(data => {
         if (data.ok) { window.__authUser = data.user; gate.style.display = "none"; document.dispatchEvent(new CustomEvent("mf:auth", { detail: data.user })); }
         else { gate.style.display = "flex"; userIn.focus(); }

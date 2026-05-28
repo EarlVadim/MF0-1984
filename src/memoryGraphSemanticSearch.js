@@ -144,13 +144,16 @@ export async function embedTextViaProxy(text, openrouterKey) {
 
     const json = await res.json();
     const vector = json?.data?.[0]?.embedding;
-    if (!Array.isArray(vector) || vector.length === 0) return null;
-
+    if (!Array.isArray(vector) || vector.length === 0) {
+      console.warn("[semantic] embed response has no vector — json keys:", Object.keys(json ?? {}), "data[0] keys:", Object.keys(json?.data?.[0] ?? {}));
+      return null;
+    }
+    console.log("[semantic] embed OK — dim:", vector.length);
     const f32 = new Float32Array(vector.length);
     for (let i = 0; i < vector.length; i++) f32[i] = vector[i];
     return f32;
   } catch (e) {
-    console.warn("[semanticSearch] embed error:", e?.message ?? e);
+    console.warn("[semantic] embed error:", e?.message ?? e);
     return null;
   }
 }
@@ -174,23 +177,63 @@ export async function embedTextViaProxy(text, openrouterKey) {
  */
 export async function semanticCandidateIdsFromGraph(userQuery, nodes, openrouterKey, topK = 20) {
   const q = String(userQuery ?? "").trim();
-  if (!q || !Array.isArray(nodes) || nodes.length === 0) return [];
+  console.log("[semantic] start — query:", q.slice(0, 80), "| nodes:", nodes?.length, "| key:", openrouterKey?.slice(0, 12));
 
-  // Only score nodes that already have a stored embedding
-  const indexed = nodes
-    .map((n) => ({ id: String(n.id ?? "").trim(), vec: decodeEmbedding(n.embedding) }))
-    .filter((x) => x.id && x.vec !== null);
+  if (!q || !Array.isArray(nodes) || nodes.length === 0) {
+    console.log("[semantic] early exit — empty query or no nodes");
+    return [];
+  }
 
-  if (indexed.length === 0) return [];
+  // Decode embeddings and log per-node status
+  const indexed = [];
+  let nullCount = 0, missingCount = 0;
+  for (const n of nodes) {
+    const id = String(n.id ?? "").trim();
+    if (!id) continue;
+    if (!n.embedding) {
+      missingCount++;
+      continue;
+    }
+    const vec = decodeEmbedding(n.embedding);
+    if (vec === null) {
+      nullCount++;
+      console.log("[semantic] decodeEmbedding failed for node:", id,
+        "| embedding type:", typeof n.embedding,
+        "| value sample:", typeof n.embedding === "string" ? n.embedding.slice(0, 20) : String(n.embedding).slice(0, 40));
+    } else {
+      indexed.push({ id, vec });
+    }
+  }
+  console.log("[semantic] indexed:", indexed.length, "| missing embedding:", missingCount, "| decode failed:", nullCount);
+
+  if (indexed.length === 0) {
+    console.log("[semantic] no indexed nodes — returning []");
+    return [];
+  }
 
   // Embed the query
+  console.log("[semantic] calling embedTextViaProxy…");
   const qVec = await embedTextViaProxy(q, openrouterKey);
-  if (!qVec) return [];
+  if (!qVec) {
+    console.log("[semantic] embedTextViaProxy returned null — no query vector");
+    return [];
+  }
+  console.log("[semantic] query vector dim:", qVec.length, "| sample:", qVec[0].toFixed(4), qVec[1].toFixed(4));
+
+  // Dimension check
+  const firstVec = indexed[0].vec;
+  if (firstVec.length !== qVec.length) {
+    console.log("[semantic] DIM MISMATCH — query:", qVec.length, "node:", firstVec.length, "— returning []");
+    return [];
+  }
 
   // Score and rank
   const scored = indexed
     .map((x) => ({ id: x.id, score: cosine(qVec, /** @type {Float32Array} */ (x.vec)) }))
     .sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, topK).map((x) => x.id);
+  const top = scored.slice(0, topK);
+  console.log("[semantic] top", top.length, "results:", top.slice(0, 5).map(x => `${x.id.slice(0,8)}:${x.score.toFixed(3)}`).join(", "));
+
+  return top.map((x) => x.id);
 }

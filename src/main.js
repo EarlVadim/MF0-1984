@@ -29,11 +29,13 @@ import {
 import { fetchOpenRouterModelEntries } from "./fetchRemoteModelLists.js";
 import { setOpenRouterModelPrices } from "./analyticsPricing.js";
 import { getUserAiModel, setUserAiModel } from "./userChatModels.js";
+import { invalidateOrModelCache } from "./chatApi.js";
 import {
   closeAllSettingsModelPickers,
   initSettingsModelSelects,
   refreshSettingsModelSelects,
 } from "./settingsModelsUi.js";
+import { initOpenRouterModelsEditor, getOrModelsCache } from "./openrouterModelsEditor.js";
 import {
   getChatAnalysisPriority,
   initChatAnalysisPrioritySettings,
@@ -290,6 +292,39 @@ let expandedThemeDialogListThemeId = null;
 
 /** Send debounce: when true, ignore duplicate submits. Cleared in send `finally` and on theme/dialog change. */
 let chatComposerSending = false;
+
+// ── Chat streaming abort ──────────────────────────────────────────────────────
+/** Active AbortController for the current chat streaming request, or null. */
+let chatAbortController = null;
+
+function beginChatStream() {
+  chatAbortController = new AbortController();
+  const sendBtn = document.getElementById("btn-chat-send");
+  const stopBtn = document.getElementById("btn-chat-stop");
+  if (sendBtn) sendBtn.style.display = "none";
+  if (stopBtn) stopBtn.style.display = "";
+  return chatAbortController.signal;
+}
+
+function endChatStream() {
+  chatAbortController = null;
+  const sendBtn = document.getElementById("btn-chat-send");
+  const stopBtn = document.getElementById("btn-chat-stop");
+  if (sendBtn) sendBtn.style.display = "";
+  if (stopBtn) stopBtn.style.display = "none";
+}
+
+function initStopButton() {
+  const btn = document.getElementById("btn-chat-stop");
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", () => {
+    if (chatAbortController) {
+      chatAbortController.abort();
+      appendActivityLog("Chat: generation stopped by user");
+    }
+  });
+}
 
 /**
  * Attachments for the current message (before send).
@@ -787,12 +822,34 @@ function initSettingsModal() {
   initAiOpinionParticipants();
   initLocalFsButton();
   initLocalFsUploadButton();
+  initStopButton();
   initChatAnalysisPrioritySettings({
     onSave() {
       appendActivityLog("Chat analysis priority saved");
     },
   });
   initBadgeVisibilitySettings();
+  initRerankModelSettings();
+  initOpenRouterModelsEditor({
+    afterSave() {
+      // Refresh runtime cache so the chat UI reflects any model list changes
+      invalidateOrModelCache();
+      const fresh = getOrModelsCache();
+      if (Array.isArray(fresh) && fresh.length) {
+        openRouterEntries = fresh;
+        setOpenRouterModelPrices(fresh);
+        updateOpenRouterBadgeLabel();
+      } else {
+        // Fallback: re-fetch from server
+        fetchOpenRouterModelEntries().then((entries) => {
+          openRouterEntries = entries;
+          setOpenRouterModelPrices(entries);
+          updateOpenRouterBadgeLabel();
+        }).catch(() => {});
+      }
+      appendActivityLog("OpenRouter models updated");
+    },
+  });
 
   const settingsAiLoading = document.getElementById("settings-ai-loading");
   const settingsModalMainPanel = document.getElementById("settings-modal-main-panel");
@@ -1700,6 +1757,46 @@ const OR_SLOT_IDS_ALL = ["or-1", "or-2", "or-3"];
 // ── Provider button visibility ────────────────────────────────────────────────
 const BADGE_VISIBILITY_KEY = "mf0.badge.visibility";
 
+// ── Rerank model per non-OR provider ─────────────────────────────────────────
+const RERANK_MODEL_KEY_PREFIX = "mf0.rerank.model.";
+
+/** Default rerank models for non-OR providers (hardcoded baseline). */
+const RERANK_MODEL_DEFAULTS = {
+  "openai":       "gpt-4o-mini",
+  "anthropic":    "claude-3-5-haiku-20241022",
+  "gemini-flash": "gemini-2.0-flash",
+  "ollama":       "gemma4:31b-cloud",
+};
+
+/** Get rerank model for a non-OR provider from localStorage (or default). */
+function getRerankModel(providerId) {
+  const stored = localStorage.getItem(RERANK_MODEL_KEY_PREFIX + providerId);
+  if (stored && stored.trim()) return stored.trim();
+  return RERANK_MODEL_DEFAULTS[providerId] ?? "";
+}
+
+/** Set rerank model for a non-OR provider. */
+function setRerankModel(providerId, modelId) {
+  localStorage.setItem(RERANK_MODEL_KEY_PREFIX + providerId, String(modelId).trim());
+}
+
+/**
+ * Resolve rerank model for any provider.
+ * OR slots: looks up rerankModel from openrouter-models.json cache.
+ * Others: reads from localStorage.
+ */
+async function resolveRerankModel(providerId) {
+  const isOrSlot = ["or-1", "or-2", "or-3"].includes(providerId);
+  if (isOrSlot) {
+    const currentModelId = getUserAiModel(providerId, "dialogue");
+    const { getOrModelCache } = await import("./chatApi.js");
+    const cache = await getOrModelCache();
+    const entry = cache.get(currentModelId);
+    return entry?.rerankModel ?? currentModelId ?? "";
+  }
+  return getRerankModel(providerId);
+}
+
 // Badges that CAN be toggled (AI opinion and LocalFS manage themselves)
 const TOGGLEABLE_BADGES = [
   { provider: "openai",       label: "ChatGPT"   },
@@ -1753,6 +1850,42 @@ function initBadgeVisibilitySettings() {
     item.appendChild(cb);
     item.appendChild(document.createTextNode(label));
     container.appendChild(item);
+  }
+}
+
+// ── Rerank model settings (non-OR providers) ──────────────────────────────────
+const RERANK_CONFIGURABLE_PROVIDERS = [
+  { provider: "openai",       label: "ChatGPT",  placeholder: "e.g. gpt-4o-mini" },
+  { provider: "anthropic",    label: "Claude",   placeholder: "e.g. claude-3-5-haiku-20241022" },
+  { provider: "gemini-flash", label: "Gemini",   placeholder: "e.g. gemini-2.0-flash" },
+  { provider: "ollama",       label: "Gemma4",   placeholder: "e.g. gemma4:31b-cloud" },
+];
+
+function initRerankModelSettings() {
+  const container = document.getElementById("settings-rerank-models");
+  if (!container) return;
+  container.innerHTML = "";
+  for (const { provider, label, placeholder } of RERANK_CONFIGURABLE_PROVIDERS) {
+    const row = document.createElement("div");
+    row.className = "settings-rerank-row";
+
+    const lbl = document.createElement("label");
+    lbl.className = "settings-rerank-label";
+    lbl.textContent = label;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "settings-rerank-input";
+    input.placeholder = placeholder;
+    input.value = getRerankModel(provider);
+    input.spellcheck = false;
+    input.addEventListener("change", () => {
+      setRerankModel(provider, input.value.trim() || (RERANK_MODEL_DEFAULTS[provider] ?? ""));
+    });
+
+    lbl.appendChild(input);
+    row.appendChild(lbl);
+    container.appendChild(row);
   }
 }
 
@@ -6646,8 +6779,9 @@ async function buildChatOptsForModelRequest(p) {
         const [pack, catalogRes, graphPayload] = await Promise.all([
           fetchContextPack(persistDialogId, promptForApi),
           catalogPromise,
-          fetchMemoryGraphFromApi().catch(() => ({ nodes: [], links: [] })),
+          fetchMemoryGraphFromApi({ signal: chatAbortController?.signal }).catch(() => ({ nodes: [], links: [] })),
         ]);
+        if (chatAbortController?.signal?.aborted) throw new DOMException("Aborted by user", "AbortError");
         let memoryTreeSupplement = "";
         const graphNodes = Array.isArray(graphPayload?.nodes) ? graphPayload.nodes : [];
         if (
@@ -6664,6 +6798,7 @@ async function buildChatOptsForModelRequest(p) {
               activeProviderId: providerId,
               activeApiKey: key,
               dialogId: persistDialogId,
+              rerankModelOverride: await resolveRerankModel(providerId),
             });
             memoryTreeSupplement = String(mtRes?.supplement ?? "");
             memoryTreeRouterAnalytics = mtRes?.memoryTreeRouterAnalytics ?? null;
@@ -6673,9 +6808,10 @@ async function buildChatOptsForModelRequest(p) {
               const semPart = _rd.semanticNew > 0
                 ? ` · semantic+${_rd.semanticNew}`
                 : " · semantic=0";
+              const modelShort = String(_rd.rerankModel ?? "").split("/").pop() || "?";
               appendActivityLog(
                 `[memRouter] nodes=${_rd.totalNodes} · lexical=${_rd.lexicalCount}${semPart}` +
-                ` · pool=${_rd.rerankPool} → selected=${_rd.selected}`,
+                ` · pool=${_rd.rerankPool} → selected=${_rd.selected} · rerank:${modelShort}`,
               );
               if (_rd.semanticWinners.length > 0) {
                 appendActivityLog(
@@ -6688,6 +6824,7 @@ async function buildChatOptsForModelRequest(p) {
             }
             // ── End router diagnostics ──────────────────────────────────────
           } catch (rErr) {
+            if (rErr instanceof DOMException && rErr.name === "AbortError") throw rErr;
             appendActivityLog(
               `Memory tree router: ${rErr instanceof Error ? rErr.message : String(rErr)}`,
             );
@@ -7214,6 +7351,9 @@ function initChatComposer() {
       const chatAttachments = attApi.images.length > 0 ? { images: attApi.images } : undefined;
 
       sendBtn.disabled = true;
+      beginChatStream();
+      // Yield to browser so Stop button renders before async work begins
+      await new Promise(r => setTimeout(r, 0));
 
       appendActivityLog(
         `Chat → request: ${attachModeLogLabel(modeForSend)}, model ${modelLabel}, input chars: ${trimmed.length}, attachments: ${filesSnapshot.length}`,
@@ -7431,6 +7571,9 @@ function initChatComposer() {
           });
           if (mtForTurn) memoryTreeRouterAnalyticsBatch.push(mtForTurn);
           let buf = "";
+          // abortSignal from the controller started at send time (beginChatStream)
+          const _chatSignal = chatAbortController?.signal ?? null;
+          const _chatOptsWithAbort = { ...chatOpts, abortSignal: _chatSignal };
           try {
             const streamRes = await completeChatMessageStreaming(
               providerId,
@@ -7444,18 +7587,25 @@ function initChatComposer() {
                 if (pending) syncAssistantCopyButtonDuringStream(pending);
                 scrollMessagesToEnd();
               },
-              chatOpts,
+              _chatOptsWithAbort,
             );
             fullText = streamRes.text;
             turnLlmUsage = ensureUsageTotals(streamRes.usage, JSON.stringify(chatOpts), fullText);
-          } catch {
-            appendActivityLog(`Chat: streaming unavailable, full response (${modelLabel})`);
-            const { text, usage } = await completeChatMessage(providerId, promptForApi, key, chatOpts);
-            fullText = text;
-            turnLlmUsage = ensureUsageTotals(usage, JSON.stringify(chatOpts), fullText);
-            const te = pending?.querySelector(".msg-assistant-text");
-            if (te) setAssistantMessageMarkdown(te, fullText);
-            scrollMessagesToEnd();
+          } catch (streamErr) {
+            // If user pressed Stop — keep partial text, skip fallback
+            if (_chatSignal.aborted) {
+              fullText = buf || "";
+            } else {
+              appendActivityLog(`Chat: streaming unavailable, full response (${modelLabel})`);
+              const { text, usage } = await completeChatMessage(providerId, promptForApi, key, chatOpts);
+              fullText = text;
+              turnLlmUsage = ensureUsageTotals(usage, JSON.stringify(chatOpts), fullText);
+              const te = pending?.querySelector(".msg-assistant-text");
+              if (te) setAssistantMessageMarkdown(te, fullText);
+              scrollMessagesToEnd();
+            }
+          } finally {
+            // endChatStream() is called in the outer send finally block
           }
           // ── LocalFS tool interception (multi-step agentic loop) ──
           if (localFsModeActive && localFsConfig.enabled && !accessDataDumpMode) {
@@ -7575,22 +7725,28 @@ function initChatComposer() {
           );
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        fullText = msg;
-        if (pending) {
-          renderAssistantError(pending, msg);
-        } else if (modeForSend === "aiTalks") {
-          const list = document.getElementById("messages-list");
-          const pendLast = list?.querySelector(".msg-assistant.msg-assistant--pending:last-of-type");
-          if (pendLast) {
-            renderAssistantError(pendLast, msg);
+        // User pressed Stop during preparation phase — clean up silently
+        if (err instanceof DOMException && err.name === "AbortError") {
+          appendActivityLog("Chat: generation stopped by user");
+          if (pending) pending.remove();
+        } else {
+          const msg = err instanceof Error ? err.message : String(err);
+          fullText = msg;
+          if (pending) {
+            renderAssistantError(pending, msg);
+          } else if (modeForSend === "aiTalks") {
+            const list = document.getElementById("messages-list");
+            const pendLast = list?.querySelector(".msg-assistant.msg-assistant--pending:last-of-type");
+            if (pendLast) {
+              renderAssistantError(pendLast, msg);
+            }
+            clearAiTalksSession();
+            syncAttachButtonExternal?.();
           }
-          clearAiTalksSession();
-          syncAttachButtonExternal?.();
+          appendActivityLog(
+            `Chat ← error, model ${modelLabel}: ${msg.length > 280 ? `${msg.slice(0, 280)}…` : msg}`,
+          );
         }
-        appendActivityLog(
-          `Chat ← error, model ${modelLabel}: ${msg.length > 280 ? `${msg.slice(0, 280)}…` : msg}`,
-        );
       }
     } finally {
       aiTalksRuntime.stopRequested = false;
@@ -7598,6 +7754,7 @@ function initChatComposer() {
       aiTalksRuntime.abortController = null;
       chatComposerSending = false;
       sendBtn.disabled = false;
+      endChatStream();
       ta.disabled = false;
       syncComposerSendButtonState();
       syncAllAssistantRetryButtons();

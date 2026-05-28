@@ -17,8 +17,8 @@ const ROUTER_MODEL = {
   "gemini-flash": "gemini-2.0-flash",
   ollama:        "gemma4:31b-cloud",
   "or-1": "deepseek/deepseek-v4-flash",
-  "or-2":   "deepseek/deepseek-v4-flash",
-  "or-3":    "deepseek/deepseek-v4-flash",
+  "or-2": "deepseek/deepseek-v4-flash",
+  "or-3": "deepseek/deepseek-v4-flash",
 };
 
 /** LLM rerank: same contract shape as Cyprus Discovery `MEMORY_ROUTE_RERANK_INSTRUCTION`. */
@@ -311,11 +311,14 @@ function pickRouterKey(allKeys, analysisPriority, activeProviderId, activeApiKey
  * @param {number} maxOutTokens
  * @returns {Promise<{ text: string, usage: { promptTokens: number, completionTokens: number, totalTokens: number } }>}
  */
-async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutTokens) {
+async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutTokens, rerankModelOverride) {
   const ub = String(userBlock).slice(0, 32000);
   const isGemini = String(providerId ?? "").toLowerCase().startsWith("gemini");
   const gatewayProvider = isGemini ? "gemini-flash" : providerId;
-  const model = ROUTER_MODEL[providerId] ?? (isGemini ? String(providerId).trim() : "");
+  // rerankModelOverride takes priority; fall back to ROUTER_MODEL constant
+  const model = (rerankModelOverride && rerankModelOverride.trim())
+    ? rerankModelOverride.trim()
+    : (ROUTER_MODEL[providerId] ?? (isGemini ? String(providerId).trim() : ""));
   if (!model) throw new Error(`Memory tree router: unsupported provider ${providerId}`);
   return callLlm({
     provider: gatewayProvider,
@@ -398,6 +401,7 @@ async function selectCandidateIdsByTitleChunks(providerId, key, userQuery, rows)
       MEMORY_TREE_TITLE_SCAN_SYSTEM,
       userBlock,
       450,
+      rerankModel,
     );
     const parsed = parseRouteIdsJson(String(text ?? ""));
     const allowed = new Set(chunk.map((x) => x.id));
@@ -441,7 +445,12 @@ function buildSupplementFromNodes(byId, validIds, rationale) {
     const cat = String(/** @type {{ category?: string }} */ (n).category ?? "").trim();
     const lab = String(/** @type {{ label?: string }} */ (n).label ?? "").trim();
     const blob = String(/** @type {{ blob?: string }} */ (n).blob ?? "").trim().slice(0, BLOB_SUPPLEMENT_EACH);
-    const sec = [`### ${cat || "?"} / ${lab || "?"}`, blob || "(no notes in this node)", ""].join("\n");
+    // Skip nodes that have neither label nor blob
+    if (!lab && !blob) continue;
+    // Emit header only for leaf/empty nodes (saves ~20 tokens each); keep header+blob for notes
+    const sec = blob
+      ? [`### ${cat || "?"} / ${lab || "?"}`, blob, ""].join("\n")
+      : `### ${cat || "?"} / ${lab || "?"}\n`;
     if (used + sec.length > cap) break;
     lines.push(sec);
     used += sec.length;
@@ -455,7 +464,7 @@ function buildSupplementFromNodes(byId, validIds, rationale) {
  * @param {number} [maxChars]
  * @returns {string}
  */
-function buildAllNodeTitleIndex(rows, maxChars = 16_000) {
+function buildAllNodeTitleIndex(rows, maxChars = 8_000) {
   if (!Array.isArray(rows) || rows.length === 0) return "";
   const lines = ["=== MEMORY GRAPH TITLE INDEX (all nodes, compact) ==="];
   let used = lines[0].length + 1;
@@ -758,6 +767,7 @@ function buildMemoryTreeRouterAnalytics(
  *   activeProviderId: string,
  *   activeApiKey: string,
  *   dialogId?: string,
+ *   rerankModelOverride?: string,
  * }} args
  * @returns {Promise<{ supplement: string, memoryTreeRouterAnalytics: MemoryTreeRouterAnalytics | null }>}
  */
@@ -769,6 +779,10 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   if (!userQuery || rawNodes.length === 0) {
     return { supplement: "", memoryTreeRouterAnalytics: null };
   }
+
+  // rerankModelOverride: for OR slots comes from openrouter-models.json via chatApi;
+  // for other providers comes from localStorage via getRerankModel() in main.js
+  const rerankModel = String(args.rerankModelOverride ?? "").trim();
 
   const { providerId, key } = pickRouterKey(
     args.allKeys ?? {},
@@ -803,7 +817,7 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   if (!providerId || !key) {
     const det0 = buildDeterministicSupplement(byId, rows, links, userQuery);
     if (rows.length <= GRAPH_APPEND_TITLE_INDEX_MAX_NODES) {
-      const idx0 = buildAllNodeTitleIndex(rows, 14_000);
+      const idx0 = buildAllNodeTitleIndex(rows, 8_000);
       return {
         supplement: [det0, idx0].filter(Boolean).join("\n\n").trim(),
         memoryTreeRouterAnalytics: null,
@@ -877,18 +891,9 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
     }
   }
 
-  // Phase 1 (global): ensure title-level coverage across all nodes via chunked scans.
-  let titleScan = { ids: [], rationale: "", usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } };
-  try {
-    titleScan = await selectCandidateIdsByTitleChunks(
-      providerId,
-      key,
-      userQuery,
-      rows.map((r) => ({ id: r.id, category: r.category, label: r.label })),
-    );
-  } catch {
-    /* fall through to deterministic behavior below if rerank also fails */
-  }
+  // Phase 1 (fast): lexical/entity + 1-hop, skip expensive title-chunk LLM calls
+  // (title-level coverage is already handled by semantic layer + final rerank)
+  const titleScan = { ids: [], rationale: "lexical/entity expansion (title-chunk LLM skipped for speed)", usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } };
   for (const id of titleScan.ids) expandedIds.add(id);
   const sizeAfterLexAndTitle = expandedIds.size;
 
@@ -948,6 +953,7 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
       MEMORY_TREE_RERANK_SYSTEM,
       userBlock,
       RERANK_MAX_OUT,
+      rerankModel,
     );
     rawText = out.text;
     usage = out.usage;
@@ -1036,11 +1042,10 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   const routerDiag = {
     totalNodes:    rows.length,
     lexicalCount:  sizeAfterLexAndTitle,
-    // semanticNew: how many nodes got a semantic score (boosted in pool sorting).
-    // On small graphs this will be > 0 even though all nodes were already in expandedIds.
     semanticNew:   semanticScoreById.size,
     rerankPool:    poolForJson.length,
     selected:      validIds.length,
+    rerankModel:   rerankModel || (ROUTER_MODEL[providerId] ?? providerId),
     semanticWinners: semanticWinners.map((id) => {
       const n = byId.get(id);
       if (!n || typeof n !== "object") return id;
@@ -1051,7 +1056,7 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   // ── End diagnostics ───────────────────────────────────────────────────────
 
   if (rows.length <= GRAPH_APPEND_TITLE_INDEX_MAX_NODES) {
-    const idx = buildAllNodeTitleIndex(rows, 14_000);
+    const idx = buildAllNodeTitleIndex(rows, 8_000);
     supplement = [supplement, idx].filter(Boolean).join("\n\n").trim();
   }
   return { supplement, memoryTreeRouterAnalytics, routerDiag };

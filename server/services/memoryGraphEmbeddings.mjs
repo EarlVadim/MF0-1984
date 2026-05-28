@@ -33,10 +33,10 @@ async function getAdapter() {
 // ---------------------------------------------------------------------------
 
 const EMBED_MODEL    = "perplexity/pplx-embed-v1-4b";
-//const EMBED_MODEL    = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
-const EMBED_DIM      = 2048;          // pplx-embed-v1-4b output dimension
+const EMBED_DIM      = 2048;          // llama-nemotron-embed output dimension
 const EMBED_TEXT_MAX = 2000;          // chars sent to the model per node
 const REINDEX_BATCH  = 40;            // nodes per batchReindex run
+const EMBED_TIMEOUT_MS = 10_000;      // abort embed call if OpenRouter stalls
 // Route through the first available OR slot proxy (or-1/or-2/or-3 → openrouter.ai)
 const OPENROUTER_EMBED_PATH = "/api/llm/or-1/api/v1/embeddings";
 
@@ -122,28 +122,26 @@ export async function embedText(text) {
     return null;
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EMBED_TIMEOUT_MS);
+
   try {
-    // Use the real key directly — the proxy injects it from process.env when
-    // Authorization is absent, but for server-to-server calls we inject it
-    // ourselves so we don't depend on the proxy being up yet at cold-start.
     const res = await fetch(`http://127.0.0.1:${process.env.API_PORT ?? 1984}${OPENROUTER_EMBED_PATH}`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type":  "application/json",
         "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": String(process.env.OPENROUTER_REFERER ?? "http://localhost:1984"),
-        "X-Title":      String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984"),
+        "HTTP-Referer":  String(process.env.OPENROUTER_REFERER  ?? "http://localhost:1984"),
+        "X-Title":       String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984"),
       },
-      body: JSON.stringify({ 
-        model: EMBED_MODEL, 
-        input: t, 
-        encoding_format: "float" 
-      }),
+      body: JSON.stringify({ model: EMBED_MODEL, input: t, encoding_format: "float" }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
     if (!res.ok) {
       const err = await res.text().catch(() => "");
-      console.warn(`[memoryGraphEmbeddings] embed request failed ${res.status}: ${err.slice(0, 200)}`);
+      console.warn(`[memoryGraphEmbeddings] embed ${res.status}: ${err.slice(0, 200)}`);
       return null;
     }
 
@@ -156,6 +154,11 @@ export async function embedText(text) {
 
     return Float32Array.from(vector);
   } catch (e) {
+    clearTimeout(timer);
+    if (e.name === "AbortError") {
+      console.warn(`[memoryGraphEmbeddings] embed timeout (${EMBED_TIMEOUT_MS}ms) — skipped`);
+      return null;
+    }
     console.warn("[memoryGraphEmbeddings] embed error:", e?.message ?? e);
     return null;
   }

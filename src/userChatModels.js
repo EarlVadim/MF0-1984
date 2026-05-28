@@ -90,17 +90,17 @@ export const FALLBACK_AI_MODEL_LISTS = {
     research: ["gemma4:31b-cloud"],
   },
   "or-1": {
-    dialogue: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+    dialogue: ["deepseek/deepseek-v4-flash"],
     search:   ["deepseek/deepseek-v4-flash"],
     research: ["deepseek/deepseek-v4-pro"],
   },
   "or-2": {
-    dialogue: ["deepseek/deepseek-v4-flash", "anthropic/claude-haiku-4.5"],
+    dialogue: ["deepseek/deepseek-v4-flash"],
     search:   ["deepseek/deepseek-v4-flash"],
     research: ["anthropic/claude-haiku-4.5"],
   },
   "or-3": {
-    dialogue: ["deepseek/deepseek-v4-flash", "anthropic/claude-haiku-4.5"],
+    dialogue: ["deepseek/deepseek-v4-flash"],
     search:   ["deepseek/deepseek-v4-flash"],
     research: ["anthropic/claude-haiku-4.5"],
   },

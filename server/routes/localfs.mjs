@@ -6,20 +6,27 @@
  * Routes:
  *   GET  /api/localfs/config                               return root + enabled flag
  *   GET  /api/localfs/list?path=<rel>&recursive=1&ext=js   list files/dirs
+ *   GET  /api/localfs/find?pattern=glob&path=<rel>         find files by glob pattern
  *   GET  /api/localfs/read?path=<rel>                      read whole file (text)
  *   GET  /api/localfs/read_lines?path=<rel>&from=1&to=80   read line range
  *   GET  /api/localfs/grep?path=<rel>&pattern=x&context=3  search in file
  *   POST /api/localfs/write   { path, content }            write/overwrite file
  *   POST /api/localfs/patch   { path, old_str, new_str }   replace unique fragment
+ *   POST /api/localfs/move    { from, to }                 move/rename file or dir
+ *   POST /api/localfs/copy    { from, to }                 copy file
+ *   POST /api/localfs/mkdir   { path }                     create directory tree
+ *   POST /api/localfs/bash    { cmd, cwd? }                run shell command in sandbox
  *   DELETE /api/localfs/delete?path=<rel>                  delete file (not dir)
+ *   DELETE /api/localfs/rmdir?path=<rel>&recursive=1       delete directory
  */
 import { Router } from "express";
 import {
   existsSync, statSync, readdirSync,
   readFileSync, writeFileSync, unlinkSync,
-  mkdirSync,
+  mkdirSync, cpSync, renameSync, rmSync,
 } from "node:fs";
-import { resolve, join, relative, extname } from "node:path";
+import { resolve, join, relative, extname, basename, dirname } from "node:path";
+import { execSync } from "node:child_process";
 
 const router = Router();
 
@@ -325,6 +332,179 @@ router.delete("/localfs/delete", (req, res) => {
     res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
+
+// ── GET /api/localfs/find ─────────────────────────────────────────────────────
+// Find files by glob-style pattern (fnmatch via regex). pattern supports * and **
+router.get("/localfs/find", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  try {
+    const base    = safePath(req.query.path ?? ".");
+    const pattern = String(req.query.pattern ?? "*").trim();
+    const limit   = Math.min(2000, Number(req.query.max) || 500);
+    const rootAbs = resolve(ROOT);
+
+    // Convert glob to regex: ** = any path, * = any filename chars
+    const reStr = "^" + pattern
+      .replace(/[.+^${}()|[\\\]]/g, "\$&")
+      .replace(/\*\*/g, " ")
+      .replace(/\*/g, "[^/]*")
+      .replace(/ /g, ".*") + "$";
+    const re = new RegExp(reStr, "i");
+
+    const results = [];
+    function walk(dir) {
+      if (results.length >= limit) return;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (results.length >= limit) break;
+        const abs = join(dir, entry.name);
+        const rel = relative(rootAbs, abs);
+        if (re.test(rel) || re.test(entry.name)) {
+          results.push({ path: rel, type: entry.isDirectory() ? "dir" : "file" });
+        }
+        if (entry.isDirectory()) walk(abs);
+      }
+    }
+    walk(base);
+    res.json({ ok: true, pattern, results, truncated: results.length >= limit });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── POST /api/localfs/move ────────────────────────────────────────────────────
+router.post("/localfs/move", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  try {
+    const { from, to } = req.body ?? {};
+    if (!from || !to) return res.status(400).json({ ok: false, error: "from and to required" });
+    const absFrom = safePath(from);
+    const absTo   = safePath(to);
+    if (!existsSync(absFrom)) return res.status(404).json({ ok: false, error: "Source not found" });
+    const toDir = dirname(absTo);
+    if (!existsSync(toDir)) mkdirSync(toDir, { recursive: true });
+    renameSync(absFrom, absTo);
+    const rootAbs = resolve(ROOT);
+    res.json({ ok: true, from: relative(rootAbs, absFrom), to: relative(rootAbs, absTo) });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── POST /api/localfs/copy ────────────────────────────────────────────────────
+router.post("/localfs/copy", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  try {
+    const { from, to } = req.body ?? {};
+    if (!from || !to) return res.status(400).json({ ok: false, error: "from and to required" });
+    const absFrom = safePath(from);
+    const absTo   = safePath(to);
+    if (!existsSync(absFrom)) return res.status(404).json({ ok: false, error: "Source not found" });
+    const toDir = dirname(absTo);
+    if (!existsSync(toDir)) mkdirSync(toDir, { recursive: true });
+    const stat = statSync(absFrom);
+    if (stat.isDirectory()) {
+      cpSync(absFrom, absTo, { recursive: true });
+    } else {
+      cpSync(absFrom, absTo);
+    }
+    const rootAbs = resolve(ROOT);
+    res.json({ ok: true, from: relative(rootAbs, absFrom), to: relative(rootAbs, absTo) });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── POST /api/localfs/mkdir ───────────────────────────────────────────────────
+router.post("/localfs/mkdir", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  try {
+    const { path: relPath } = req.body ?? {};
+    if (!relPath) return res.status(400).json({ ok: false, error: "path required" });
+    const abs = safePath(relPath);
+    mkdirSync(abs, { recursive: true });
+    res.json({ ok: true, path: relative(resolve(ROOT), abs) });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── DELETE /api/localfs/rmdir ─────────────────────────────────────────────────
+router.delete("/localfs/rmdir", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  try {
+    const abs = safePath(req.query.path ?? "");
+    if (!existsSync(abs)) return res.status(404).json({ ok: false, error: "Path not found" });
+    const stat = statSync(abs);
+    if (!stat.isDirectory()) return res.status(400).json({ ok: false, error: "Not a directory" });
+    const recursive = req.query.recursive === "1" || req.query.recursive === "true";
+    rmSync(abs, { recursive, force: false });
+    res.json({ ok: true, path: relative(resolve(ROOT), abs), recursive });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ── POST /api/localfs/bash ────────────────────────────────────────────────────
+// Run a shell command sandboxed inside LOCALFS_ROOT.
+// Hard limits: 30s timeout, 512KB output, no network (fire-walled by env, not by this code).
+// The cwd is always resolved inside ROOT; PATH traversal in cmd is the user's responsibility.
+const BASH_TIMEOUT_MS  = 30_000;
+const BASH_MAX_OUTPUT  = 512 * 1024;
+
+// Commands that could escape the sandbox or cause damage — blocked unconditionally.
+const BASH_BLOCKED_RE = /(sudo|su|curl|wget|nc|ncat|netcat|ssh|scp|sftp|chmod\s+[0-9]*[sS]|chown|mount|umount|mkfs|dd\s+of=\/|rm\s+-rf\s+\/|>(\/dev\/sd|\/proc|\/sys))/;
+
+router.post("/localfs/bash", (req, res) => {
+  if (!ENABLED) return notEnabled(res);
+  try {
+    const { cmd, cwd: cwdRel } = req.body ?? {};
+    if (!cmd || typeof cmd !== "string") return res.status(400).json({ ok: false, error: "cmd required" });
+    if (BASH_BLOCKED_RE.test(cmd)) {
+      return res.status(403).json({ ok: false, error: "Command contains blocked keywords" });
+    }
+
+    const rootAbs = resolve(ROOT);
+    const cwd = cwdRel ? safePath(cwdRel) : rootAbs;
+
+    let stdout = "", stderr = "", exitCode = 0;
+    try {
+      const out = execSync(cmd, {
+        cwd,
+        timeout: BASH_TIMEOUT_MS,
+        maxBuffer: BASH_MAX_OUTPUT,
+        env: {
+          ...process.env,
+          // Prevent accidental network access markers; actual network blocking
+          // must be done at OS/firewall level.
+          HOME: rootAbs,
+          LOCALFS_ROOT: rootAbs,
+        },
+        shell: "/bin/bash",
+      });
+      stdout = out.toString("utf-8");
+    } catch (e) {
+      exitCode = e.status ?? 1;
+      stdout   = (e.stdout ?? Buffer.alloc(0)).toString("utf-8");
+      stderr   = (e.stderr ?? Buffer.alloc(0)).toString("utf-8");
+    }
+
+    // Truncate if huge
+    const truncate = (s) => s.length > BASH_MAX_OUTPUT
+      ? s.slice(0, BASH_MAX_OUTPUT) + "\n[...truncated]"
+      : s;
+
+    res.json({
+      ok: exitCode === 0,
+      exitCode,
+      stdout: truncate(stdout),
+      stderr: truncate(stderr),
+      cwd: relative(rootAbs, cwd),
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 
 // ── POST /api/localfs/upload ──────────────────────────────────────────────────
 // Upload a single binary file. Relative path (including sub-folders) is passed

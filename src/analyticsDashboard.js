@@ -23,6 +23,10 @@ let prepareChatSurface = null;
 /** @type {() => Promise<void>} */
 let refreshAnalyticsViewIfOpenImpl = async () => {};
 
+// ── By-model table sort state ─────────────────────────────────────────────────
+let _modelSortCol = 6;   // default: Est. cost (USD) — index 0-based
+let _modelSortAsc = false;
+
 /**
  * @param {HTMLElement} root
  * @param {unknown} raw
@@ -273,10 +277,28 @@ function renderAnalytics(root, raw, activeRange) {
 
   // ── By-model table ────────────────────────────────────────────────────────
   const byModelArr = Array.isArray(data.byModel) ? data.byModel : [];
-  const byModelHtml = byModelArr.length === 0 ? "" : (() => {
-    const fmtN  = (n) => Number(n).toLocaleString();
-    const fmtU  = (u) => formatUsdEstimate(Number(u) || 0);
-    const rows  = byModelArr.map((m) => {
+
+  // ── By-model table helpers ────────────────────────────────────────────────
+  const MODEL_COLS = [
+    { label: "Model",            key: (m) => String(m.model ?? ""),       text: true  },
+    { label: "Slot",             key: (m) => String(m.slot  ?? ""),       text: true  },
+    { label: "Requests",         key: (m) => Number(m.requests),          text: false },
+    { label: "Prompt tok",       key: (m) => Number(m.tokensPrompt),      text: false },
+    { label: "Completion tok",   key: (m) => Number(m.tokensCompletion),  text: false },
+    { label: "Total tok",        key: (m) => Number(m.tokensTotal),       text: false },
+    { label: "Est. cost (USD)",  key: (m) => Number(m.estimatedUsd) || 0, text: false },
+  ];
+
+  function buildModelTableRows(arr) {
+    const fmtN = (n) => Number(n).toLocaleString();
+    const fmtU = (u) => formatUsdEstimate(Number(u) || 0);
+    const col = MODEL_COLS[_modelSortCol];
+    const sorted = [...arr].sort((a, b) => {
+      const va = col.key(a), vb = col.key(b);
+      const cmp = col.text ? va.localeCompare(vb) : va - vb;
+      return _modelSortAsc ? cmp : -cmp;
+    });
+    return sorted.map((m) => {
       const model = escapeHtml(String(m.model ?? "—"));
       const slot  = escapeHtml(String(m.slot  ?? "—"));
       return `<tr>
@@ -289,24 +311,27 @@ function renderAnalytics(root, raw, activeRange) {
         <td class="analytics-cost-col">${fmtU(m.estimatedUsd)}</td>
       </tr>`;
     }).join("");
-    return `
+  }
+
+  function buildModelTableHeaders() {
+    return MODEL_COLS.map((c, i) => {
+      const active = i === _modelSortCol;
+      const arrow  = active ? (_modelSortAsc ? " ▲" : " ▼") : "";
+      return `<th class="analytics-model-th${active ? " analytics-model-th--active" : ""}" data-col="${i}" style="cursor:pointer;user-select:none;">${escapeHtml(c.label)}${arrow}</th>`;
+    }).join("");
+  }
+
+  const byModelHtml = byModelArr.length === 0 ? "" : `
       <section class="analytics-chart-block">
         <h3 class="analytics-section-title">By model — all time</h3>
-        <p class="analytics-tokens-note">Grouped by the actual model used (responding_model_id), independent of which OR slot it ran on. Cost uses per-model pricing from openrouter-models.txt where available.</p>
+        <p class="analytics-tokens-note">Grouped by the actual model used (responding_model_id), independent of which OR slot it ran on. Cost uses per-model pricing from openrouter-models.txt where available. Click a column header to sort.</p>
         <div class="analytics-table-wrap">
-          <table class="analytics-model-table" role="table" aria-label="Usage by model">
-            <thead>
-              <tr>
-                <th>Model</th><th>Slot</th><th>Requests</th>
-                <th>Prompt tok</th><th>Completion tok</th><th>Total tok</th>
-                <th>Est. cost (USD)</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
+          <table class="analytics-model-table" id="analytics-model-table" role="table" aria-label="Usage by model">
+            <thead><tr>${buildModelTableHeaders()}</tr></thead>
+            <tbody>${buildModelTableRows(byModelArr)}</tbody>
           </table>
         </div>
       </section>`;
-  })();
   // ── End by-model table ────────────────────────────────────────────────────
 
   root.innerHTML = `
@@ -361,6 +386,26 @@ function renderAnalytics(root, raw, activeRange) {
       </section>
       ${byModelHtml}
     </div>`;
+
+  // ── Sort click handler for by-model table ─────────────────────────────────
+  const modelTable = root.querySelector("#analytics-model-table");
+  if (modelTable) {
+    modelTable.querySelector("thead").addEventListener("click", (e) => {
+      const th = e.target.closest("th[data-col]");
+      if (!th) return;
+      const col = Number(th.dataset.col);
+      if (col === _modelSortCol) {
+        _modelSortAsc = !_modelSortAsc;
+      } else {
+        _modelSortCol = col;
+        // text columns default asc, numeric columns default desc
+        _modelSortAsc = MODEL_COLS[col].text;
+      }
+      // Re-render only thead and tbody (no full page re-render)
+      modelTable.querySelector("thead tr").innerHTML = buildModelTableHeaders();
+      modelTable.querySelector("tbody").innerHTML = buildModelTableRows(byModelArr);
+    });
+  }
 }
 
 export function closeAnalyticsView() {
