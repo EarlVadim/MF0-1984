@@ -34,25 +34,40 @@ import { openRouterModelPriceMap } from "./db/openrouterPrices.mjs";
 (function loadOpenRouterPrices() {
   try {
     const __dir = dirname(fileURLToPath(import.meta.url));
-    const file = resolve(__dir, "../openrouter-models.txt");
-    if (!existsSync(file)) return;
-    const raw = readFileSync(file, "utf-8");
-    raw.split(/\r?\n/).forEach((line) => {
-      const l = line.trim();
-      if (!l || l.startsWith("#")) return;
-      const parts = l.split("|").map((p) => p.trim());
-      const id = parts[0];
-      if (!id) return;
-      const inputPer1M  = parseFloat(parts[1] ?? "0") || 0;
-      const outputPer1M = parseFloat(parts[2] ?? "0") || 0;
-      const shortName = parts.length > 3 && parts[3]
-        ? parts[3].trim()
-        : (id.split("/").pop() || id);
-      openRouterModelPriceMap.set(id, { inputPer1M, outputPer1M, shortName });
-    });
+    // Try JSON first (new format), then fall back to legacy .txt
+    const jsonFile = resolve(__dir, "../openrouter-models.json");
+    const txtFile  = resolve(__dir, "../openrouter-models.txt");
+    if (existsSync(jsonFile)) {
+      const raw = JSON.parse(readFileSync(jsonFile, "utf-8"));
+      const arr = Array.isArray(raw) ? raw : (Array.isArray(raw?.models) ? raw.models : []);
+      for (const e of arr) {
+        const id = String(e?.id ?? "").trim();
+        if (!id) continue;
+        openRouterModelPriceMap.set(id, {
+          inputPer1M:  Number(e.inputPer1M)  || 0,
+          outputPer1M: Number(e.outputPer1M) || 0,
+          shortName:   String(e.shortName ?? id.split("/").pop() ?? id),
+        });
+      }
+    } else if (existsSync(txtFile)) {
+      const raw = readFileSync(txtFile, "utf-8");
+      raw.split(/\r?\n/).forEach((line) => {
+        const l = line.trim();
+        if (!l || l.startsWith("#")) return;
+        const parts = l.split("|").map((p) => p.trim());
+        const id = parts[0];
+        if (!id) return;
+        const inputPer1M  = parseFloat(parts[1] ?? "0") || 0;
+        const outputPer1M = parseFloat(parts[2] ?? "0") || 0;
+        const shortName = parts.length > 3 && parts[3]
+          ? parts[3].trim()
+          : (id.split("/").pop() || id);
+        openRouterModelPriceMap.set(id, { inputPer1M, outputPer1M, shortName });
+      });
+    }
     console.log(`[mf-lab-api] OpenRouter prices loaded: ${openRouterModelPriceMap.size} model(s)`);
   } catch (e) {
-    console.warn("[mf-lab-api] Could not load openrouter-models.txt:", e?.message);
+    console.warn("[mf-lab-api] Could not load openrouter-models:", e?.message);
   }
 })();
 

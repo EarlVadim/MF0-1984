@@ -1,18 +1,20 @@
 const STORAGE_KEY = "mf0.settings.chatAnalysisPriority";
 
-/** @typedef {"openai" | "anthropic" | "gemini-flash" | "ollama" | "ollama-kimi" | "ollama-ds" | "openrouter"} ChatAnalysisProviderId */
+/** @typedef {"openai" | "anthropic" | "gemini-flash" | "ollama"} ChatAnalysisProviderId */
 
-/** @type {ChatAnalysisProviderId[]} */
-const DEFAULT_CHAT_ANALYSIS_PRIORITY = ["openai", "anthropic", "gemini-flash", "ollama", "or-1", "or-2", "or-3"];
+/**
+ * Fixed providers only — OR slots are excluded from the priority UI because
+ * their model is variable per chat. Keeper model for OR slots is configured
+ * separately via the per-entry keeperModel field in openrouter-models.json.
+ * @type {ChatAnalysisProviderId[]}
+ */
+const DEFAULT_CHAT_ANALYSIS_PRIORITY = ["openai", "anthropic", "gemini-flash", "ollama"];
 
 const PROVIDER_TITLE = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   "gemini-flash": "Gemini",
   ollama: "Gemma4",
-  "or-1": "OR Slot 1",
-  "or-2":   "OR Slot 2",
-  "or-3": "OR Slot 3",
 };
 
 /**

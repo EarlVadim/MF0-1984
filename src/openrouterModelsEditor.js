@@ -1,6 +1,8 @@
 /**
  * OpenRouter Models Editor — full CRUD UI inside a modal dialog.
  * Layout: left panel (model list by shortName) + right panel (edit form).
+ * Each model entry has a `keeperModel` field — the model to use for Keeper
+ * calls when this model is selected in an OR slot. Empty = use dialogue model.
  * Responsive: on narrow screens the panels stack vertically.
  */
 
@@ -168,7 +170,9 @@ function renderEditForm() {
   // — Field: outputPer1M
   formEl.appendChild(makeField("outputPer1M", "Output $/1M tokens", String(m.outputPer1M), "number", "0.00", false, "step", "0.001"));
   // — Field: rerankModel
-  formEl.appendChild(makeField("rerankModel", "Rerank Model", m.rerankModel || "", "text", "e.g. qwen/qwen3.5-flash-02-23"));
+  formEl.appendChild(makeField("rerankModel", "Rerank Model", m.rerankModel || "", "text", "e.g. cohere/rerank-v3.5"));
+  // — Field: keeperModel
+  formEl.appendChild(makeField("keeperModel", "Keeper Model", m.keeperModel || "", "text", "e.g. deepseek/deepseek-v4-flash (empty = dialogue model)"));
 
   // — Modes section
   const modesSection = document.createElement("div");
@@ -286,7 +290,7 @@ function readFormValues() {
   if (!m) return null;
 
   // Simple fields
-  for (const key of ["shortName", "desc", "inputPer1M", "outputPer1M", "rerankModel"]) {
+  for (const key of ["shortName", "desc", "inputPer1M", "outputPer1M", "rerankModel", "keeperModel"]) {
     const inp = document.querySelector(`#or-model-field-${key}`);
     if (!inp) continue;
     const val = inp.value.trim();
@@ -379,6 +383,7 @@ async function addNewModel() {
     inputPer1M: 0,
     outputPer1M: 0,
     rerankModel: "",
+    keeperModel: "",
     modes: defaultModes(id.trim()),
   };
 
@@ -431,6 +436,7 @@ function openModal() {
   apiGetModels().then((fresh) => {
     modelsCache = fresh;
     selectedIndex = -1;
+    dirty = false;
     renderModelList();
     renderEditForm();
   }).catch(() => {});

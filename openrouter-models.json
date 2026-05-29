@@ -5,9 +5,12 @@
     "desc": "0.12/0.25",
     "inputPer1M": 0.126,
     "outputPer1M": 0.252,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "deepseek/deepseek-v4-flash"
+        "model": "deepseek/deepseek-v4-flash",
+        "tools": []
       },
       "search": {
         "model": "deepseek/deepseek-v4-flash",
@@ -40,8 +43,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "deepseek/deepseek-v4-pro",
@@ -49,9 +51,12 @@
     "desc": "0.435/0.87",
     "inputPer1M": 0.435,
     "outputPer1M": 0.87,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "deepseek/deepseek-v4-pro"
+        "model": "deepseek/deepseek-v4-pro",
+        "tools": []
       },
       "search": {
         "model": "deepseek/deepseek-v4-pro",
@@ -84,18 +89,20 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "anthropic/claude-sonnet-4.6",
     "shortName": "Sonnet 4.6",
     "desc": "3.0/15.0",
-    "inputPer1M": 3.0,
-    "outputPer1M": 15.0,
+    "inputPer1M": 3,
+    "outputPer1M": 15,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "anthropic/claude-sonnet-4.6"
+        "model": "anthropic/claude-sonnet-4.6",
+        "tools": []
       },
       "search": {
         "model": "anthropic/claude-sonnet-4.6",
@@ -128,18 +135,20 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "anthropic/claude-haiku-4.5",
     "shortName": "Haiku 4.5",
     "desc": "1.0/5.0",
-    "inputPer1M": 1.0,
-    "outputPer1M": 5.0,
+    "inputPer1M": 1,
+    "outputPer1M": 5,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "anthropic/claude-haiku-4.5"
+        "model": "anthropic/claude-haiku-4.5",
+        "tools": []
       },
       "search": {
         "model": "anthropic/claude-haiku-4.5",
@@ -172,8 +181,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "qwen/qwen3.6-plus",
@@ -181,9 +189,12 @@
     "desc": "0.325/1.95",
     "inputPer1M": 0.325,
     "outputPer1M": 1.95,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "qwen/qwen3.6-plus"
+        "model": "qwen/qwen3.6-plus",
+        "tools": []
       },
       "search": {
         "model": "qwen/qwen3.6-plus",
@@ -216,8 +227,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "qwen/qwen3.5-plus-02-15",
@@ -225,9 +235,12 @@
     "desc": "0.26/1.5",
     "inputPer1M": 0.26,
     "outputPer1M": 1.5,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "qwen/qwen3.5-plus-02-15"
+        "model": "qwen/qwen3.5-plus-02-15",
+        "tools": []
       },
       "search": {
         "model": "qwen/qwen3.5-plus-02-15",
@@ -260,8 +273,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "qwen/qwen3.5-flash-02-23",
@@ -269,9 +281,12 @@
     "desc": "0.065/0.26",
     "inputPer1M": 0.065,
     "outputPer1M": 0.26,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "qwen/qwen3.5-flash-02-23"
+        "model": "qwen/qwen3.5-flash-02-23",
+        "tools": []
       },
       "search": {
         "model": "qwen/qwen3.5-flash-02-23",
@@ -304,8 +319,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "moonshotai/kimi-k2.5",
@@ -313,9 +327,12 @@
     "desc": "0.40/1.90",
     "inputPer1M": 0.4,
     "outputPer1M": 1.9,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "moonshotai/kimi-k2.5"
+        "model": "moonshotai/kimi-k2.5",
+        "tools": []
       },
       "search": {
         "model": "moonshotai/kimi-k2.5",
@@ -348,8 +365,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "moonshotai/kimi-k2.6",
@@ -357,9 +373,12 @@
     "desc": "0.73/3.49",
     "inputPer1M": 0.73,
     "outputPer1M": 3.49,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "moonshotai/kimi-k2.6"
+        "model": "moonshotai/kimi-k2.6",
+        "tools": []
       },
       "search": {
         "model": "moonshotai/kimi-k2.6",
@@ -392,8 +411,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "google/gemma-4-31b-it",
@@ -401,9 +419,12 @@
     "desc": "0.12/0.37",
     "inputPer1M": 0.12,
     "outputPer1M": 0.37,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "google/gemma-4-31b-it"
+        "model": "google/gemma-4-31b-it",
+        "tools": []
       },
       "search": {
         "model": "google/gemma-4-31b-it",
@@ -436,18 +457,20 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "google/gemini-3.5-flash",
     "shortName": "Gemini3.5F",
     "desc": "1.5/9.0",
     "inputPer1M": 1.5,
-    "outputPer1M": 9.0,
+    "outputPer1M": 9,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "google/gemini-3.5-flash"
+        "model": "google/gemini-3.5-flash",
+        "tools": []
       },
       "search": {
         "model": "google/gemini-3.5-flash",
@@ -482,18 +505,20 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "google/gemini-3-flash-preview",
     "shortName": "Gemini3F",
     "desc": "0.5/3.0",
     "inputPer1M": 0.5,
-    "outputPer1M": 3.0,
+    "outputPer1M": 3,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "google/gemini-3-flash-preview"
+        "model": "google/gemini-3-flash-preview",
+        "tools": []
       },
       "search": {
         "model": "google/gemini-3-flash-preview",
@@ -528,8 +553,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "google/gemini-3.1-flash-lite",
@@ -537,9 +561,12 @@
     "desc": "0.25/1.5",
     "inputPer1M": 0.25,
     "outputPer1M": 1.5,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "google/gemini-3.1-flash-lite"
+        "model": "google/gemini-3.1-flash-lite",
+        "tools": []
       },
       "search": {
         "model": "google/gemini-3.1-flash-lite",
@@ -574,18 +601,20 @@
           }
         ]
       }
-    },
-    "rerankModel": "qwen/qwen3.5-flash-02-23"
+    }
   },
   {
     "id": "nvidia/nemotron-3-super-120b-a12b:free",
     "shortName": "NTron-3S-free",
     "desc": "0/0",
-    "inputPer1M": 0.0,
-    "outputPer1M": 0.0,
+    "inputPer1M": 0,
+    "outputPer1M": 0,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "nvidia/nemotron-3-super-120b-a12b:free"
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "tools": []
       },
       "search": {
         "model": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -620,19 +649,20 @@
           }
         ]
       }
-    },
-    "rerankModel": "nvidia/nemotron-3-super-120b-a12b:free"
-  }
-  ,
+    }
+  },
   {
     "id": "z-ai/glm-5.1",
     "shortName": "glm5.1",
     "desc": "0.98/3.08",
     "inputPer1M": 0.98,
     "outputPer1M": 3.08,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "z-ai/glm-5.1"
+        "model": "z-ai/glm-5.1",
+        "tools": []
       },
       "search": {
         "model": "z-ai/glm-5.1",
@@ -667,8 +697,7 @@
           }
         ]
       }
-    },
-    "rerankModel": "z-ai/glm-4.7-flash"
+    }
   },
   {
     "id": "z-ai/glm-4.7",
@@ -676,9 +705,12 @@
     "desc": "0.4/1.75",
     "inputPer1M": 0.4,
     "outputPer1M": 1.75,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
     "modes": {
       "dialogue": {
-        "model": "z-ai/glm-4.7"
+        "model": "z-ai/glm-4.7",
+        "tools": []
       },
       "search": {
         "model": "z-ai/glm-4.7",
@@ -713,7 +745,52 @@
           }
         ]
       }
-    },
-    "rerankModel": "z-ai/glm-4.7-flash"
+    }
+  },
+  {
+    "id": "qwen/qwen3.5-9b",
+    "shortName": "qwen3.5-9b",
+    "desc": "0.04/0.15",
+    "inputPer1M": 0.04,
+    "outputPer1M": 0.15,
+    "rerankModel": "cohere/rerank-v3.5",
+    "keeperModel": "openai/gpt-4o-mini",
+    "modes": {
+      "dialogue": {
+        "model": "qwen/qwen3.5-9b",
+        "tools": []
+      },
+      "search": {
+        "model": "qwen/qwen3.5-9b",
+        "tools": [
+          {
+            "type": "openrouter:web_search",
+            "parameters": {
+              "max_results": 5,
+              "max_total_results": 20
+            }
+          }
+        ]
+      },
+      "research": {
+        "model": "qwen/qwen3.5-9b",
+        "tools": [
+          {
+            "type": "openrouter:web_search",
+            "parameters": {
+              "max_results": 10,
+              "max_total_results": 50
+            }
+          },
+          {
+            "type": "openrouter:web_fetch",
+            "parameters": {
+              "max_uses": 5,
+              "max_content_tokens": 50000
+            }
+          }
+        ]
+      }
+    }
   }
 ]

@@ -1797,6 +1797,37 @@ async function resolveRerankModel(providerId) {
   return getRerankModel(providerId);
 }
 
+/**
+ * Build a { providerId → default model } mapping for ALL providers.
+ * Fixed providers (openai, anthropic, gemini-flash, ollama): model from Settings (dialogueModel).
+ * OR slots (or-1, or-2, or-3): model from openrouter-models.json.
+ * This replaces the old hardcoded ROUTER_MODEL constant in memoryTreeRouter.js.
+ * @returns {Promise<Record<string, string>>}
+ */
+async function resolveRouterModels() {
+  const models = {};
+  // Fixed providers: model from Settings
+  const { dialogueModel } = await import("./chatApi.js");
+  for (const pid of ["openai", "anthropic", "gemini-flash", "ollama"]) {
+    const m = dialogueModel(pid);
+    if (m) models[pid] = m;
+  }
+  // OR slots: model from openrouter-models.json cache
+  const { getOrModelCache } = await import("./chatApi.js");
+  const cache = await getOrModelCache();
+  for (const slotId of ["or-1", "or-2", "or-3"]) {
+    const currentModelId = getUserAiModel(slotId, "dialogue");
+    if (currentModelId) {
+      const entry = cache.get(currentModelId);
+      // OR model = entry's dialogue mode model, or the entry ID itself
+      const modeConf = entry?.modes?.dialogue ?? null;
+      const model = modeConf?.model ?? currentModelId;
+      if (model) models[slotId] = model;
+    }
+  }
+  return models;
+}
+
 // Badges that CAN be toggled (AI opinion and LocalFS manage themselves)
 const TOGGLEABLE_BADGES = [
   { provider: "openai",       label: "ChatGPT"   },
@@ -6784,57 +6815,136 @@ async function buildChatOptsForModelRequest(p) {
         if (chatAbortController?.signal?.aborted) throw new DOMException("Aborted by user", "AbortError");
         let memoryTreeSupplement = "";
         const graphNodes = Array.isArray(graphPayload?.nodes) ? graphPayload.nodes : [];
+        const graphLinks = Array.isArray(graphPayload?.links) ? graphPayload.links : [];
+        const graphNodesWithEmbedding = graphNodes.filter(n => n && typeof n === "object" && n.embedding).length;
+        const graphNodesTotal = graphNodes.length;
+        const graphLinksTotal = graphLinks.length;
+        appendActivityLog(
+          `[memRouter] graph fetched: nodes=${graphNodesTotal} (with embedding=${graphNodesWithEmbedding}) · links=${graphLinksTotal}`,
+        );
         if (
           graphNodes.length > 0 &&
           String(promptForApi ?? "").trim() &&
           !rulesChatOpen
         ) {
+          appendActivityLog(`[memRouter] calling router — provider=${providerId} · prompt chars=${String(promptForApi).length}`);
           try {
+            const allKeys = getModelApiKeys();
+            const analysisPriority = getChatAnalysisPriority();
+            const rerankModel = await resolveRerankModel(providerId);
+            const routerModels = await resolveRouterModels();
+            const hasOrKey = Boolean(String(allKeys?.["or-1"] || allKeys?.["or-2"] || allKeys?.["or-3"] || "").trim());
+            appendActivityLog(
+              `[memRouter] router keys — provider=${providerId} · hasOrKey=${hasOrKey} · rerankModel=${rerankModel || "(default)"} · priority=${analysisPriority?.join(",") || "(default)"}`,
+            );
+            const _keysPresent = Object.keys(allKeys ?? {}).filter(k => String(allKeys?.[k] ?? "").trim()).join(",");
+            appendActivityLog(
+              `[memRouter] key map — providers with keys: [${_keysPresent || "(none)"}] · activeKey present=${Boolean(String(key ?? "").trim())}`,
+            );
             const mtRes = await fetchMemoryTreeSupplementForPrompt({
               userQuery: promptForApi,
               graph: graphPayload,
-              allKeys: getModelApiKeys(),
-              analysisPriority: getChatAnalysisPriority(),
+              allKeys,
+              analysisPriority,
               activeProviderId: providerId,
               activeApiKey: key,
               dialogId: persistDialogId,
-              rerankModelOverride: await resolveRerankModel(providerId),
+              rerankModelOverride: rerankModel,
+              routerModels,
             });
             memoryTreeSupplement = String(mtRes?.supplement ?? "");
             memoryTreeRouterAnalytics = mtRes?.memoryTreeRouterAnalytics ?? null;
+            const supplementLen = memoryTreeSupplement.length;
+            appendActivityLog(`[memRouter] router returned — supplement chars=${supplementLen} · hasAnalytics=${Boolean(memoryTreeRouterAnalytics)}`);
             // ── Router diagnostics → activity log ──────────────────────────
             const _rd = mtRes?.routerDiag;
             if (_rd) {
-              const semPart = _rd.semanticNew > 0
-                ? ` · semantic+${_rd.semanticNew}`
-                : " · semantic=0";
-              const modelShort = String(_rd.rerankModel ?? "").split("/").pop() || "?";
-              appendActivityLog(
-                `[memRouter] nodes=${_rd.totalNodes} · lexical=${_rd.lexicalCount}${semPart}` +
-                ` · pool=${_rd.rerankPool} → selected=${_rd.selected} · rerank:${modelShort}`,
-              );
-              if (_rd.semanticWinners.length > 0) {
+              const _path = String(_rd.path ?? "ok");
+              if (_path === "ok" || _path.startsWith("early-") || _path === "rerank-fail") {
+                // ── Early-return / error paths ────────────────────────────
+                appendActivityLog(`[memRouter] path=${_path} — ${_rd.reason || "(no reason)"}`);
+                if (_path === "early-3") {
+                  // key resolution failure — log everything about key selection
+                  appendActivityLog(
+                    `[memRouter] pickRouterKey: pickedProvider=${_rd.pickedProviderId} · activeProvider=${_rd.activeProviderId}` +
+                    ` · activeKeyPresent=${_rd.activeApiKeyPresent} · allKeysAvailable=[${_rd.allKeysAvailable}]`,
+                  );
+                }
+                if (_path === "early-4" || _path === "rerank-fail") {
+                  const modelShort = String(_rd.rerankModel ?? "").split("/").pop() || "?";
+                  appendActivityLog(
+                    `[memRouter] nodes=${_rd.totalNodes ?? "?"} · pool=${_rd.rerankPool ?? _rd.poolSize ?? "?"}` +
+                    ` · parsedIds=${_rd.parsedIds ?? "?"} · rerank:${modelShort}`,
+                  );
+                  if (_path === "rerank-fail") {
+                    appendActivityLog(
+                      `[memRouter] pickedProvider=${_rd.pickedProvider ?? "?"} · activeProvider=${providerId}` +
+                      ` · priority=${_rd.analysisPriority ?? "?"}`,
+                    );
+                    if (Array.isArray(_rd.attempts) && _rd.attempts.length > 0) {
+                      appendActivityLog(
+                        `[memRouter] attempts: ${_rd.attempts.join(" · ")}`,
+                      );
+                    }
+                  }
+                }
+                if (_rd.rationale && _path !== "ok") {
+                  appendActivityLog(`[memRouter] rationale: ${_rd.rationale}`);
+                }
+              }
+              if (_path === "ok" || (!_path.startsWith("early-") && _path !== "rerank-fail")) {
+                // ── Happy-path diagnostics (original detailed output) ──────
+                const semPart = _rd.semanticNew > 0
+                  ? ` · semantic+${_rd.semanticNew}`
+                  : " · semantic=0";
+                const modelShort = String(_rd.rerankModel ?? "").split("/").pop() || "?";
+                const modeTag = _rd.rerankMode === "native" ? " [native]" : "";
                 appendActivityLog(
-                  `[memRouter] semantic winners: ${_rd.semanticWinners.join(", ")}`,
+                  `[memRouter] nodes=${_rd.totalNodes} · lexical=${_rd.lexicalCount}${semPart}` +
+                  ` · pool=${_rd.rerankPool} → selected=${_rd.selected} · rerank:${modelShort}${modeTag} · ${_rd.rerankMs ?? "?"}ms`,
                 );
+                if (_rd.rerankFallback) {
+                  appendActivityLog(
+                    `[memRouter] rerank used fallback — provider=${_rd.rerankProvider || "?"} · model=${modelShort}`,
+                  );
+                  if (Array.isArray(_rd.rerankAttempts) && _rd.rerankAttempts.length > 0) {
+                    appendActivityLog(
+                      `[memRouter] attempts: ${_rd.rerankAttempts.join(" · ")}`,
+                    );
+                  }
+                }
+                if (_rd.semanticWinners?.length > 0) {
+                  appendActivityLog(
+                    `[memRouter] semantic winners: ${_rd.semanticWinners.join(", ")}`,
+                  );
+                }
+                if (_rd.rationale) {
+                  appendActivityLog(`[memRouter] rationale: ${_rd.rationale}`);
+                }
               }
-              if (_rd.rationale) {
-                appendActivityLog(`[memRouter] rationale: ${_rd.rationale}`);
-              }
+            } else {
+              appendActivityLog(`[memRouter] ⚠ no routerDiag in response — unknown return path (router did not provide diagnostics)`);
             }
             // ── End router diagnostics ──────────────────────────────────────
           } catch (rErr) {
             if (rErr instanceof DOMException && rErr.name === "AbortError") throw rErr;
             appendActivityLog(
-              `Memory tree router: ${rErr instanceof Error ? rErr.message : String(rErr)}`,
+              `[memRouter] ❌ router error: ${rErr instanceof Error ? rErr.message : String(rErr)}`,
             );
             memoryTreeSupplement = buildMemoryTreeDeterministicSupplement(graphPayload, promptForApi);
             memoryTreeRouterAnalytics = null;
           }
           if (!String(memoryTreeSupplement ?? "").trim() && graphNodes.length > 0) {
+            appendActivityLog(`[memRouter] supplement empty after router — falling back to deterministic`);
             memoryTreeSupplement = buildMemoryTreeDeterministicSupplement(graphPayload, promptForApi);
             /* Router may have billed LLM tokens but returned empty text; keep aux row for that pass. */
           }
+        } else {
+          const reasons = [];
+          if (graphNodes.length === 0) reasons.push("graph is empty");
+          if (!String(promptForApi ?? "").trim()) reasons.push("no prompt");
+          if (rulesChatOpen) reasons.push("rules chat open");
+          appendActivityLog(`[memRouter] router SKIPPED — ${reasons.join(" · ")}`);
         }
         const _ctxCfg = getModelContextConfig(providerId);
         const built = buildModelContext({

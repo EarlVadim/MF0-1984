@@ -300,9 +300,9 @@ export async function callLlm(opts) {
     }
 
     case "or-1":
-	case "or-2":
+    case "or-2":
     case "or-3":
-    case "openrouter":	{
+    case "openrouter":  {
       // OpenRouter uses the same OpenAI-compatible format.
       // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
       const systemMsg = system ? [{ role: "system", content: system }] : [];
@@ -313,7 +313,8 @@ export async function callLlm(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      const res = await fetch("/api/llm/or-1/api/v1/chat/completions", {
+      const orSlot = provider.startsWith("or-") ? provider : "or-1";
+      const res = await fetch(`/api/llm/${orSlot}/api/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify(body),
@@ -512,7 +513,7 @@ export async function callLlmStream(opts) {
     }
 
     case "or-1":
-	case "or-2":
+    case "or-2":
     case "or-3": {
       // OpenRouter uses the same OpenAI-compatible format.
       // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
@@ -524,7 +525,8 @@ export async function callLlmStream(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      const res = await fetch("/api/llm/or-1/api/v1/chat/completions", {
+      const orSlot = provider.startsWith("or-") ? provider : "or-1";
+      const res = await fetch(`/api/llm/${orSlot}/api/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify(body),

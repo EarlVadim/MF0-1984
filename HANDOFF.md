@@ -4,6 +4,150 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.11.01)
+
+### Strict provider-slot binding for ReRank and Keeper
+
+The ReRank (Memory router) and Keeper provider/model selection logic was **completely rewritten** to enforce a strict architectural rule: **each slot uses ONLY its own provider and its own configured models**. Previously, the selection logic used `chatAnalysisPriority` to iterate through providers and attempted cross-provider fallbacks — this caused nonsensical calls like `ollama/rerank-v3.5` (Ollama cannot call Cohere rerank) or `anthropic/gpt-4o-mini` (Anthropic cannot call OpenAI models).
+
+#### Architectural rule
+
+| Slot type | Provider | Model source | Example |
+|---|---|---|---|
+| `or-1` / `or-2` / `or-3` | OpenRouter only | JSON (`openrouter-models.json`) | `or-1` + `cohere/rerank-v3.5` |
+| `anthropic` | Anthropic only | Settings ("Memory router model" + "AI settings") | `anthropic` + `claude-3-5-haiku-20241022` |
+| `ollama` | Ollama only | Settings ("Memory router model" + "AI settings") | `ollama` + `gemma4:31b-cloud` |
+| `openai` | OpenAI only | Settings ("Memory router model" + "AI settings") | `openai` + `gpt-4o-mini` |
+| `gemini-flash` | Gemini only | Settings ("Memory router model" + "AI settings") | `gemini-flash` + `gemini-2.0-flash` |
+
+**NO cross-provider attempts.** If the current slot is `anthropic`, then both ReRank and Keeper use `anthropic` with models from Settings — never OpenRouter, never Ollama, never any other provider. If the current slot is `or-1`, then both ReRank and Keeper use `or-1` with models from JSON — never Anthropic, never Ollama, etc.
+
+#### ReRank — `pickRouterKey()` (`src/memoryTreeRouter.js`)
+
+**Before (broken):**
+
+1. If `rerankModel` had a `/` (OpenRouter model), scanned all OR slots for a key
+2. If `rerankModel` had no `/`, tried to match it against `routerModels[pid]` for all fixed providers
+3. If no `rerankModel`, iterated through `chatAnalysisPriority` (mixing providers), then OR slots, then active provider
+4. Rerank attempt loop added cross-provider fallbacks: other OR slots, fixed providers from priority, even active provider as last resort
+
+**After (correct):**
+
+1. Uses **only** `activeProviderId` + `activeApiKey` (the current chat slot)
+2. If `rerankModelOverride` is set → use it with the current provider
+3. If no override → use `routerModels[activeProviderId]` (Settings model for fixed providers, JSON model for OR slots)
+4. If neither → cannot rerank (returns empty)
+5. Rerank attempt loop: **only** the current provider's models — primary (rerankModel) then fallback (default model from same provider if different). No other providers.
+
+**Function signature** unchanged (parameters kept for API compatibility), but `analysisPriority` is now **DEPRECATED** and ignored internally.
+
+#### Keeper — `pickKeeperProviderWithKeyAsync()` / `pickKeeperProviderWithKey()` (`src/memoryKeepers.js`)
+
+**Before (broken):**
+
+1. `findOrSlotWithKeeperModel()` — scanned ALL OR slots looking for a `keeperModel` field, preferring the current chat's OR slot
+2. If no OR keeper found, iterated through `chatAnalysisPriority` (mixing providers)
+3. Fallback: any OR slot with a key
+4. Sync version same priority iteration
+
+**After (correct):**
+
+Both functions now accept `currentProviderId` and `currentApiKey` as parameters:
+
+- **OR slot**: calls `getOrSlotKeeperModel(slotId)` — returns `entry.keeperModel` if configured in JSON, otherwise the slot's dialogue model from JSON
+- **Fixed provider**: returns `{ providerId, apiKey, keeperModel: "" }` — the extractor functions use `dialogueModel(providerId)` internally when `modelOverride` is empty
+
+**New helper:** `getOrSlotKeeperModel(slotId)` — resolves the keeper model for an OR slot from JSON (explicit `keeperModel` field, or fallback to `getOrSlotDialogueModel()`).
+
+**Removed:** `findOrSlotWithKeeperModel()` — no longer needed since we never scan other slots.
+
+**Removed import:** `getChatAnalysisPriority` from `memoryKeepers.js` — no longer used for keeper selection.
+
+**Removed import:** `getModelApiKeys` from `memoryKeepers.js` — keys are now passed as parameters.
+
+#### `runKeepersAfterTurn()` (`src/memoryKeepers.js`)
+
+Both call sites (Intro Keeper and Chat Keeper) now pass `providerId, key` (already available as function parameters) to `pickKeeperProviderWithKeyAsync()`. The `keeperModel` is now fully resolved by `pickKeeperProviderWithKeyAsync` — no additional OR-slot-specific fallback logic needed.
+
+#### Memory optimizer (`src/main.js`)
+
+The LLM check optimizer (`buildLlmCheckOptimizationPayload`) now uses `getActiveProviderId()` + `getModelApiKeys()` to determine the current provider, instead of calling `pickKeeperProviderWithKey()` with no arguments.
+
+#### Activity log changes (`src/main.js`)
+
+The `[memRouter] router keys` log line no longer shows `priority=...` (chatAnalysisPriority). Instead it shows `rerankModel=...` and `resolvedModel=...` to reflect the current slot's model.
+
+#### Summary of all changes
+
+| File | Change |
+|------|--------|
+| `src/memoryTreeRouter.js` | `pickRouterKey()` completely rewritten: uses only current provider, no `analysisPriority` |
+| `src/memoryTreeRouter.js` | Rerank attempt loop rewritten: only current provider's models, no cross-provider fallbacks |
+| `src/memoryTreeRouter.js` | JSDoc updated: `analysisPriority` marked as DEPRECATED |
+| `src/memoryKeepers.js` | `pickKeeperProviderWithKeyAsync(pid, key)` rewritten: uses only current provider |
+| `src/memoryKeepers.js` | `pickKeeperProviderWithKey(pid, key)` rewritten: uses only current provider |
+| `src/memoryKeepers.js` | New `getOrSlotKeeperModel(slotId)` helper for OR slot keeper model resolution |
+| `src/memoryKeepers.js` | Removed `findOrSlotWithKeeperModel()` |
+| `src/memoryKeepers.js` | Removed import of `getChatAnalysisPriority` and `getModelApiKeys` |
+| `src/memoryKeepers.js` | `runKeepersAfterTurn()` — both Keeper call sites pass `providerId, key` |
+| `src/main.js` | Optimizer uses `getActiveProviderId()` for keeper provider |
+| `src/main.js` | Router call no longer passes `analysisPriority` |
+| `src/main.js` | Activity log updated for new router diagnostics |
+| `package.json` | Version → **1.11.01** |
+
+### Cohere rerank-v3.5 via native /v1/rerank API
+
+Support for the Cohere native rerank API endpoint (`POST /v1/rerank`) through OpenRouter proxy. This provides significantly better reranking quality compared to chat-completion-based reranking.
+
+**How it works:**
+
+When the configured `rerankModel` for an OR slot is `cohere/rerank-v3.5` (or any model matching `NATIVE_RERANK_MODELS`), the router calls `runNativeRerank()` instead of `runRouterLlm()`. The native rerank API accepts `{ model, query, documents, top_n }` and returns relevance-scored document indices.
+
+**Implementation (`src/memoryTreeRouter.js`):**
+
+- `NATIVE_RERANK_MODELS` — set of model IDs that use the native rerank API
+- `isNativeRerankModel(modelId)` — checks if a model should use native rerank (exact match or prefix match for future versions)
+- `runNativeRerank(providerId, key, model, userQuery, pool, topN)` — builds documents from candidate pool, calls `/api/llm/<providerId>/api/v1/rerank`, maps results back to pool IDs
+- Activity log shows `[native]` tag for native rerank calls
+
+**Proxy path:** `/api/llm/or-1/api/v1/rerank` → OpenRouter `https://openrouter.ai/api/v1/rerank`
+
+**OR model editor (`src/openrouterModelsEditor.js`):**
+
+New `rerankModel` field per model entry in the editor. When set, this model ID overrides the default dialogue model for Memory router reranking. The field is optional — if empty, the router uses the slot's default dialogue model.
+
+**Settings server (`server/routes/settings.mjs`):**
+
+- `sanitizeModelEntry()` — new `rerankModel` field (string, trimmed, max 200 chars)
+- Load and save paths handle the new field
+
+**`openrouter-models.json`:**
+
+Each entry can now include an optional `rerankModel` field:
+
+```json
+{
+  "id": "deepseek/deepseek-v4-flash",
+  "shortName": "DS4 Flash",
+  "rerankModel": "cohere/rerank-v3.5",
+  ...
+}
+```
+
+**Per-model `keeperModel` field:**
+
+Similar to `rerankModel`, each OR model entry can specify a `keeperModel` — the model to use for Keeper (post-turn memory extraction) when this model is active in the slot. If empty, the slot's dialogue model is used.
+
+- Editor field: `keeperModel` (text input, optional)
+- Settings server: `sanitizeModelEntry()` handles `keeperModel`
+- `getOrSlotKeeperModel(slotId)` resolves it at runtime
+
+### Version bump
+
+- `package.json` → **1.11.01**
+
+---
+
 ## Release notes (1.10.07)
 
 ### OpenRouter Models WebUI Editor
