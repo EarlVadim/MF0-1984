@@ -8,7 +8,6 @@
 
 import { callLlm } from "./llmGateway.js";
 import { dialogueModel } from "./chatApi.js";
-import { getUserAiModel } from "./userChatModels.js";
 import {
   apiHealth,
   fetchMemoryGraphFromApi,
@@ -715,7 +714,7 @@ export async function extractRulesKeeper3FromTranscript(
  * @param {string} userText
  * @param {{ dialog_id?: string, conversation_turn_id?: string }} [analytics]
  */
-export async function extractChatInterestSketchForIngest(providerId, apiKey, userText, analytics = {}, modelOverride = "") {
+export async function extractChatInterestSketchForIngest(providerId, apiKey, userText, analytics = {}) {
   const key = String(apiKey ?? "").trim();
   const u = String(userText ?? "").trim().slice(0, 8000);
   if (!key || !u) return { entities: [], links: [], commands: [] };
@@ -724,7 +723,7 @@ export async function extractChatInterestSketchForIngest(providerId, apiKey, use
   const { text } = await callLlm({
     provider: providerId,
     key,
-    model: modelOverride || dialogueModel(providerId),
+    model: dialogueModel(providerId),
     messages: [{ role: "user", content: userBlock }],
     system,
     temperature: 0.12,
@@ -753,7 +752,6 @@ export async function normalizeIntroMemoryGraphForDb(
   existingNodes,
   turnContext = {},
   analytics = {},
-  modelOverride = "",
 ) {
   const key = String(apiKey ?? "").trim();
   const rawProp = proposed && typeof proposed === "object" ? proposed : {};
@@ -797,7 +795,7 @@ export async function normalizeIntroMemoryGraphForDb(
   const { text } = await callLlm({
     provider: providerId,
     key,
-    model: modelOverride || dialogueModel(providerId),
+    model: dialogueModel(providerId),
     messages: [{ role: "user", content: userJson }],
     system,
     temperature: 0,
@@ -832,7 +830,7 @@ export function introUserNotesFallbackPack(userText) {
  * @param {string} userText
  * @param {{ dialog_id?: string, conversation_turn_id?: string }} [analytics]
  */
-export async function extractIntroMemoryGraphForIngest(providerId, apiKey, userText, analytics = {}, modelOverride = "") {
+export async function extractIntroMemoryGraphForIngest(providerId, apiKey, userText, analytics = {}) {
   const key = String(apiKey ?? "").trim();
   const u = String(userText ?? "").trim().slice(0, 8000);
   if (!key || !u) return { entities: [], links: [], commands: [] };
@@ -841,7 +839,7 @@ export async function extractIntroMemoryGraphForIngest(providerId, apiKey, userT
   const { text } = await callLlm({
     provider: providerId,
     key,
-    model: modelOverride || dialogueModel(providerId),
+    model: dialogueModel(providerId),
     messages: [{ role: "user", content: userBlock }],
     system,
     temperature: 0.1,
@@ -885,125 +883,10 @@ export function keeperIngestCommandsLine(ing) {
   return bits.length ? ` Commands: ${bits.join(", ")}.` : "";
 }
 
-/**
- * Scan OR slots for a configured keeperModel. If any OR slot has a model entry
- * with a non-empty keeperModel AND that OR slot has an API key, return it
- * (preferring the slot that matches the current chat's provider).
- *
- * ARCHITECTURE: OR slots work ONLY with OpenRouter. keeperModel is always an
- * OpenRouter model ID (e.g. "openai/gpt-4o-mini") and MUST be routed through
- * the OR slot's OpenRouter proxy. Never try keeperModel through a fixed provider.
- *
- * @param {Record<string, string>} keys
- * @returns {{ providerId: string, apiKey: string, keeperModel: string } | null}
- */
-async function findOrSlotWithKeeperModel(keys) {
-  const chatProviderId = typeof window !== "undefined"
-    ? String(localStorage.getItem("mf0.selectedProvider") ?? "").trim()
-    : "";
-  const orSlots = ["or-1", "or-2", "or-3"];
-  // If the current chat uses an OR slot, check that one first
-  const ordered = chatProviderId && orSlots.includes(chatProviderId)
-    ? [chatProviderId, ...orSlots.filter((s) => s !== chatProviderId)]
-    : orSlots;
-
-  for (const slotId of ordered) {
-    const key = String(keys[slotId] ?? "").trim();
-    if (!key) continue;
-    try {
-      const currentModelId = getUserAiModel(slotId, "dialogue");
-      const { getOrModelCache } = await import("./chatApi.js");
-      const cache = await getOrModelCache();
-      const entry = cache.get(currentModelId);
-      const keeperModel = String(entry?.keeperModel ?? "").trim();
-      if (keeperModel) {
-        return { providerId: slotId, apiKey: key, keeperModel };
-      }
-    } catch {
-      // skip this slot
-    }
-  }
-  return null;
-}
-
-/**
- * Get the dialogue/chat model for an OR slot from its JSON entry.
- * OR slots use models from openrouter-models.json, NOT from Settings dialogueModel().
- * Falls back to dialogueModel() only if JSON cache is unavailable.
- * @param {string} slotId — "or-1", "or-2", or "or-3"
- * @returns {Promise<string>}
- */
-async function getOrSlotDialogueModel(slotId) {
-  try {
-    const currentModelId = getUserAiModel(slotId, "dialogue");
-    const { getOrModelCache } = await import("./chatApi.js");
-    const cache = await getOrModelCache();
-    const entry = cache.get(currentModelId);
-    // The model for OR slots is the entry's dialogue mode model, or the entry ID itself
-    const modeConf = entry?.modes?.dialogue ?? entry?.modes?.["dialogue"] ?? null;
-    const model = modeConf?.model ?? currentModelId;
-    if (model) return model;
-  } catch {
-    // JSON cache unavailable — fall back to dialogueModel
-  }
-  return dialogueModel(slotId);
-}
-
-/**
- * Picks the best provider+model for Keeper calls.
- *
- * ARCHITECTURE RULES:
- *   - Fixed providers (openai, anthropic, gemini-flash, ollama) can ONLY run
- *     their own model from Settings. They CANNOT run OpenRouter models.
- *   - OR slots (or-1, or-2, or-3) can ONLY run OpenRouter models from JSON.
- *     They CANNOT run fixed-provider models.
- *   - Never cross-contaminate: an OR model through a fixed provider → 403/err.
- *
- * Priority:
- * 1. If an OR slot has a non-empty keeperModel configured for its current
- *    model entry in openrouter-models.json, use that OR slot + keeperModel
- *    (routed through OpenRouter proxy).
- * 2. Otherwise, use the highest-priority fixed provider from chatAnalysisPriority.
- *    The model comes from Settings via dialogueModel(providerId).
- * 3. Fallback: any OR slot with a key. The model comes from openrouter-models.json
- *    via getOrSlotDialogueModel(slotId).
- *
- * Returns { providerId, apiKey, keeperModel }.
- * - keeperModel is non-empty only when an OR slot was picked via rule 1.
- * - For fixed providers (rule 2), keeperModel = "" → dialogueModel(providerId) is used.
- * - For OR slots without keeperModel (rule 3), keeperModel = "" → getOrSlotDialogueModel(slotId) is used.
- */
-export async function pickKeeperProviderWithKeyAsync() {
-  const keys = getModelApiKeys();
-
-  // Rule 1: OR slot with an explicit keeperModel configured (OpenRouter model via JSON)
-  const orKeeper = await findOrSlotWithKeeperModel(keys);
-  if (orKeeper) return orKeeper;
-
-  // Rule 2: Fixed providers from the priority list (models from Settings)
-  for (const id of getChatAnalysisPriority()) {
-    const key = String(keys[id] ?? "").trim();
-    if (key) return { providerId: id, apiKey: key, keeperModel: "" };
-  }
-
-  // Rule 3: Any OR slot with a key (model from openrouter-models.json)
-  for (const id of ["or-1", "or-2", "or-3"]) {
-    const key = String(keys[id] ?? "").trim();
-    if (key) return { providerId: id, apiKey: key, keeperModel: "" };
-  }
-
-  return { providerId: "", apiKey: "", keeperModel: "" };
-}
-
-/** Synchronous version: returns the best provider without checking keeperModel.
- *  Used by code paths that don't need the keeperModel override. */
+/** Picks the highest-priority provider that has an API key configured. */
 export function pickKeeperProviderWithKey() {
   const keys = getModelApiKeys();
   for (const id of getChatAnalysisPriority()) {
-    const key = String(keys[id] ?? "").trim();
-    if (key) return { providerId: id, apiKey: key };
-  }
-  for (const id of ["or-1", "or-2", "or-3"]) {
     const key = String(keys[id] ?? "").trim();
     if (key) return { providerId: id, apiKey: key };
   }
@@ -1057,16 +940,9 @@ export async function runKeepersAfterTurn({
   if (!accessDataDumpMode && introContextActive && modeForSend !== "image" && !hadAssistantError) {
     try {
       log("Keeper (Intro): start — extracting from user text…");
-      const keeperPick = await pickKeeperProviderWithKeyAsync();
+      const keeperPick = pickKeeperProviderWithKey();
       const keeperProviderId = String(keeperPick.providerId ?? "").trim();
       const keeperApiKey = String(keeperPick.apiKey ?? "").trim();
-      // For OR slots without explicit keeperModel, get dialogue model from JSON cache
-      let keeperModel = String(keeperPick.keeperModel ?? "").trim();
-      if (!keeperModel && ["or-1", "or-2", "or-3"].includes(keeperProviderId)) {
-        keeperModel = await getOrSlotDialogueModel(keeperProviderId);
-      }
-      const keeperModelTag = keeperModel ? ` · model=${keeperModel.split("/").pop()}` : "";
-      log(`Keeper (Intro): provider=${keeperProviderId}${keeperModelTag}`);
       if (!keeperProviderId || !keeperApiKey) {
         log("Keeper (Intro): skipped — no API key for analysis provider (OpenAI/Anthropic/Gemini/Perplexity).");
       } else {
@@ -1076,11 +952,11 @@ export async function runKeepersAfterTurn({
           extracted = await extractIntroMemoryGraphForIngest(keeperProviderId, keeperApiKey, persistUserText, {
             dialog_id: persistDialogId,
             conversation_turn_id: tid,
-          }, keeperModel);
+          });
         } catch (exErr) {
           log(`Keeper (Intro): extract request failed — ${exErr instanceof Error ? exErr.message : String(exErr)}. Continuing with empty extract (normalize + fallback can still run).`);
         }
-        log(`Keeper (Intro): extract — ${keeperPayloadSummary(extracted)}${keeperModelTag}`);
+        log(`Keeper (Intro): extract — ${keeperPayloadSummary(extracted)}`);
         let pack = extracted;
         if (await apiHealth()) {
           try {
@@ -1093,7 +969,6 @@ export async function runKeepersAfterTurn({
               existing.nodes ?? [],
               { introMode: true, userText: persistUserText },
               { dialog_id: persistDialogId, conversation_turn_id: tid },
-              keeperModel,
             );
             log(`Keeper (Intro): normalize — ${keeperPayloadSummary(pack)}`);
           } catch (normErr) {
@@ -1268,16 +1143,9 @@ export async function runKeepersAfterTurn({
   ) {
     try {
       log("Keeper (chat): start — interest sketch from user text…");
-      const keeperPick = await pickKeeperProviderWithKeyAsync();
+      const keeperPick = pickKeeperProviderWithKey();
       const keeperProviderId = String(keeperPick.providerId ?? "").trim();
       const keeperApiKey = String(keeperPick.apiKey ?? "").trim();
-      // For OR slots without explicit keeperModel, get dialogue model from JSON cache
-      let keeperModel = String(keeperPick.keeperModel ?? "").trim();
-      if (!keeperModel && ["or-1", "or-2", "or-3"].includes(keeperProviderId)) {
-        keeperModel = await getOrSlotDialogueModel(keeperProviderId);
-      }
-      const keeperModelTag = keeperModel ? ` · model=${keeperModel.split("/").pop()}` : "";
-      log(`Keeper (chat): provider=${keeperProviderId}${keeperModelTag}`);
       if (!keeperProviderId || !keeperApiKey) {
         log("Keeper (chat): skipped — no API key for analysis provider (OpenAI/Anthropic/Gemini/Perplexity).");
       } else {
@@ -1286,9 +1154,8 @@ export async function runKeepersAfterTurn({
           keeperApiKey,
           persistUserText,
           { dialog_id: persistDialogId, conversation_turn_id: tid },
-          keeperModel,
         );
-        log(`Keeper (chat): extract — ${keeperPayloadSummary(extracted)}${keeperModelTag}`);
+        log(`Keeper (chat): extract — ${keeperPayloadSummary(extracted)}`);
         let pack = extracted;
         if ((extracted.entities.length > 0 || extracted.links.length > 0) && (await apiHealth())) {
           try {
@@ -1301,9 +1168,8 @@ export async function runKeepersAfterTurn({
               existing.nodes ?? [],
               {},
               { dialog_id: persistDialogId, conversation_turn_id: tid },
-              keeperModel,
             );
-            log(`Keeper (chat): normalize — ${keeperPayloadSummary(pack)}${keeperModelTag}`);
+            log(`Keeper (chat): normalize — ${keeperPayloadSummary(pack)}`);
           } catch (normErr) {
             log(`Keeper (chat): normalize — error: ${normErr instanceof Error ? normErr.message : String(normErr)}`);
             log(`Keeper (chat): pack without normalize — ${keeperPayloadSummary(pack)}`);

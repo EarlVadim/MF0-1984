@@ -111,11 +111,20 @@ function renderModelList() {
   }
 
   modelsCache.forEach((m, i) => {
-    const item = document.createElement("button");
-    item.type = "button";
+    const item = document.createElement("div");
     item.className = "or-models-list-item" + (i === selectedIndex ? " selected" : "");
     item.setAttribute("role", "option");
     item.setAttribute("aria-selected", i === selectedIndex ? "true" : "false");
+    item.setAttribute("draggable", "true");
+    item.setAttribute("data-model-id", m.id);
+
+    const grip = document.createElement("span");
+    grip.className = "or-models-list-grip";
+    grip.setAttribute("aria-hidden", "true");
+    grip.textContent = "⋮⋮";
+
+    const textWrap = document.createElement("span");
+    textWrap.className = "or-models-list-text";
 
     const nameSpan = document.createElement("span");
     nameSpan.className = "or-models-list-name";
@@ -125,7 +134,8 @@ function renderModelList() {
     descSpan.className = "or-models-list-desc";
     descSpan.textContent = m.desc || `${m.inputPer1M}/${m.outputPer1M}`;
 
-    item.append(nameSpan, descSpan);
+    textWrap.append(nameSpan, descSpan);
+    item.append(grip, textWrap);
     item.addEventListener("click", () => selectModel(i));
     listEl.appendChild(item);
   });
@@ -422,6 +432,152 @@ async function deleteCurrentModel() {
   }
 }
 
+// ── Drag-and-drop reorder ───────────────────────────────────────────────────
+
+/** @type {HTMLElement | null} */
+let dragItem = null;
+
+const EDGE_SCROLL_PX = 40;
+const EDGE_SCROLL_STEP = 16;
+
+/**
+ * FLIP animation for smooth vertical reordering.
+ * @param {() => void} mutate
+ */
+function animateVerticalReorder(listEl, mutate) {
+  const items = [...listEl.querySelectorAll(".or-models-list-item")];
+  const before = new Map(items.map((el) => [el, el.getBoundingClientRect()]));
+  mutate();
+  const afterItems = [...listEl.querySelectorAll(".or-models-list-item")];
+  for (const el of afterItems) {
+    const a = before.get(el);
+    if (!a) continue;
+    const b = el.getBoundingClientRect();
+    const dy = a.top - b.top;
+    if (Math.abs(dy) < 0.5) continue;
+    el.style.transition = "none";
+    el.style.transform = `translateY(${dy}px)`;
+    requestAnimationFrame(() => {
+      el.style.transition = "transform 160ms ease";
+      el.style.transform = "translateY(0)";
+      const clear = () => {
+        el.style.transition = "";
+        el.style.transform = "";
+        el.removeEventListener("transitionend", clear);
+      };
+      el.addEventListener("transitionend", clear);
+    });
+  }
+}
+
+/**
+ * Determine which element the dragged item should be placed before,
+ * based on vertical mouse position.
+ * @param {number} y
+ * @returns {HTMLElement | null}
+ */
+function dragAfterElement(listEl, y) {
+  const els = [...listEl.querySelectorAll(".or-models-list-item")].filter((el) => el !== dragItem);
+  let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+  for (const el of els) {
+    const r = el.getBoundingClientRect();
+    const offset = y - r.top - r.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      closest = { offset, element: el };
+    }
+  }
+  return closest.element;
+}
+
+/**
+ * Rebuild modelsCache from the current DOM order and persist to server.
+ */
+async function persistReorder(listEl) {
+  const idOrder = [];
+  listEl.querySelectorAll("[data-model-id]").forEach((el) => {
+    const id = el.getAttribute("data-model-id");
+    if (id) idOrder.push(id);
+  });
+  // Find the selected model ID from the DOM (before rebuilding cache)
+  const selectedEl = listEl.querySelector(".or-models-list-item.selected[data-model-id]");
+  const selectedId = selectedEl ? selectedEl.getAttribute("data-model-id") : null;
+  // Rebuild modelsCache in the new order
+  const map = new Map(modelsCache.map((m) => [m.id, m]));
+  const reordered = idOrder.map((id) => map.get(id)).filter(Boolean);
+  // Add any models missing from DOM (shouldn't happen, but safe)
+  for (const m of modelsCache) {
+    if (!reordered.includes(m)) reordered.push(m);
+  }
+  try {
+    const result = await apiPutModels(reordered);
+    modelsCache = Array.isArray(result.models) ? result.models : reordered;
+    // Update selectedIndex to follow the selected model by ID
+    if (selectedId) {
+      const newIdx = modelsCache.findIndex((m) => m.id === selectedId);
+      if (newIdx >= 0) selectedIndex = newIdx;
+    }
+    // Re-render list to sync DOM with modelsCache (server may sanitize)
+    renderModelList();
+    renderEditForm();
+    afterSaveCallback?.();
+  } catch (e) {
+    console.error("Reorder save failed:", e);
+  }
+}
+
+function bindDragListeners() {
+  const listEl = $id("or-models-list");
+  if (!listEl) return;
+
+  listEl.addEventListener("dragstart", (e) => {
+    const item = e.target?.closest?.(".or-models-list-item");
+    if (!(item instanceof HTMLElement)) return;
+    dragItem = item;
+    item.classList.add("or-models-list-item--dragging");
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(item.dataset.modelId ?? ""));
+    }
+  });
+
+  listEl.addEventListener("dragend", () => {
+    if (dragItem) dragItem.classList.remove("or-models-list-item--dragging");
+    const hadItem = dragItem;
+    dragItem = null;
+    if (hadItem) persistReorder(listEl);
+  });
+
+  listEl.addEventListener("dragover", (e) => {
+    if (!dragItem) return;
+    e.preventDefault();
+    // Edge scroll (vertical)
+    const lr = listEl.getBoundingClientRect();
+    if (e.clientY < lr.top + EDGE_SCROLL_PX) {
+      listEl.scrollTop -= EDGE_SCROLL_STEP;
+    } else if (e.clientY > lr.bottom - EDGE_SCROLL_PX) {
+      listEl.scrollTop += EDGE_SCROLL_STEP;
+    }
+    const after = dragAfterElement(listEl, e.clientY);
+    if (!after) {
+      if (listEl.lastElementChild !== dragItem) {
+        animateVerticalReorder(listEl, () => {
+          listEl.appendChild(dragItem);
+        });
+      }
+    } else if (after !== dragItem && after.previousElementSibling !== dragItem) {
+      animateVerticalReorder(listEl, () => {
+        listEl.insertBefore(dragItem, after);
+      });
+    }
+  });
+
+  listEl.addEventListener("drop", (e) => {
+    if (!dragItem) return;
+    e.preventDefault();
+    persistReorder(listEl);
+  });
+}
+
 // ── Open / close modal ───────────────────────────────────────────────────────
 
 function openModal() {
@@ -491,6 +647,9 @@ export function initOpenRouterModelsEditor(opts = {}) {
   if (deleteBtn) {
     deleteBtn.addEventListener("click", () => deleteCurrentModel());
   }
+
+  // Drag-and-drop reorder
+  bindDragListeners();
 
   // Escape key
   document.addEventListener("keydown", (e) => {

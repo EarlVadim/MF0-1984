@@ -4,6 +4,94 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.11.03)
+
+### OpenRouter Models drag-and-drop reorder
+
+Models in the OpenRouter Models editor list can now be reordered by drag-and-drop. Previously the list was always sorted alphabetically by `shortName` with no way to change the display order.
+
+**How it works:**
+
+Each model list item is now `draggable="true"` and displays a grip handle (`⋮⋮`) on the left side. Dragging an item moves it to a new position in the list with a smooth FLIP animation. On `dragend` (or `drop`) the new order is persisted to the server via `apiPutModels()` and the runtime `modelsCache` is rebuilt. The `selectedIndex` tracks the selected model by ID, so the currently selected model stays selected even after reordering.
+
+**Implementation (`src/openrouterModelsEditor.js`):**
+
+- `animateVerticalReorder(listEl, mutate)` — FLIP animation: records `getBoundingClientRect()` before the DOM mutation, applies an inverse `translateY`, then transitions to `translateY(0)` in 160 ms. Cleanup on `transitionend`.
+- `dragAfterElement(listEl, y)` — finds the closest list item whose vertical center is below the cursor Y coordinate; returns the element the dragged item should be inserted before.
+- `persistReorder(listEl)` — reads `[data-model-id]` from the DOM in order, rebuilds `modelsCache` from a `Map`, calls `apiPutModels(reordered)`, updates `selectedIndex` by ID, re-renders list and edit form.
+- `bindDragListeners()` — attaches `dragstart` / `dragend` / `dragover` / `drop` on `#or-models-list`. Includes edge-scroll (40 px zone, 16 px step) for scrolling during drag near list boundaries.
+- List items changed from `<button>` to `<div draggable="true">` with a grip handle span and text wrapper.
+
+**CSS (`src/theme.css`):**
+
+| Class | Purpose |
+|---|---|
+| `.or-models-list-item--dragging` | Reduced opacity (0.45) + accent background highlight while dragging |
+| `.or-models-list-grip` | Grip handle: 0.7 rem, muted color, `cursor: grab`, `letter-spacing: -2px` for compact `⋮⋮` |
+| `.or-models-list-grip:active` | `cursor: grabbing` |
+| `.or-models-list-item:hover .or-models-list-grip` | Brighter on hover |
+| `.or-models-list-item.selected .or-models-list-grip` | Muted primary-foreground color |
+| `.or-models-list-text` | Flex column wrapper for name + desc lines, `flex: 1`, `min-width: 0` |
+
+**Files changed:** `src/openrouterModelsEditor.js`, `src/theme.css`.
+
+### New Chat dropdown
+
+The "New chat" button is now a dropdown with two actions instead of a single-action button:
+
+| Option | Action |
+|---|---|
+| **New dialog in current theme** (default) | Resets the chat area to a blank state but keeps `activeThemeId` — the next message creates a new dialog under the current theme |
+| **New theme** | Resets the chat area and clears `activeThemeId` — the next message bootstraps a brand-new theme and its first dialog |
+
+**HTML (`index.html`):**
+
+The plain `<button id="btn-new-dialogue">` was wrapped in a `.new-chat-dropdown-wrap` container. A chevron-down SVG icon was added inside the button. A sibling `<div id="new-chat-menu">` provides two `<button class="new-chat-menu-item">` entries with SVG icons and text labels. ARIA attributes: `aria-haspopup="menu"`, `aria-controls="new-chat-menu"`, `aria-expanded="false"`, `role="menu"`, `role="menuitem"`.
+
+**JS (`src/main.js` — `initNewDialogueButton()`):**
+
+- `resetToBlankChat()` — shared helper: clears chat state (messages list, selection, viewport scroll, composer, attachment UI) without affecting `activeThemeId` or `activeDialogId`.
+- `openNewChatMenu()` — uses `getBoundingClientRect()` on the button to set `menu.style.top` and `menu.style.left`, then unhides the menu. This positioning is required because the menu uses `position: fixed` (see below).
+- "Dialog in theme" handler: saves `activeThemeId` before `resetToBlankChat()`, then restores it, sets `activeDialogId = null`.
+- "New theme" handler: calls `resetToBlankChat()`, sets `activeThemeId = null`, `activeDialogId = null`.
+- Click outside or Escape key closes the menu.
+
+**Fixed-position dropdown (`position: fixed`):**
+
+The dropdown menu initially used `position: absolute`, but was clipped by `overflow: hidden` on parent containers (`html`, `body`, `.app-root`). Switched to `position: fixed` with JavaScript-calculated coordinates from `getBoundingClientRect()`. The `z-index: 80` places the menu above the sidebar and other UI layers.
+
+**CSS (`src/theme.css`):**
+
+| Class | Purpose |
+|---|---|
+| `.new-chat-dropdown-wrap` | `position: relative` wrapper for the button |
+| `.new-chat-chevron` | Chevron icon: `margin-left: 2px`, `opacity: 0.6`, rotation transition 150 ms |
+| `#btn-new-dialogue[aria-expanded="true"] .new-chat-chevron` | Rotates chevron 180° when menu is open |
+| `.new-chat-menu` | `position: fixed`, `z-index: 80`, `min-width: 12rem`, card background + border + shadow |
+| `.dark .new-chat-menu` | Stronger box-shadow for dark theme |
+| `.new-chat-menu[hidden]` | `display: none !important` |
+| `.new-chat-menu-item` | Flex row, 0.55/0.85 rem padding, 0.8 rem font, hover/focus background |
+| `.new-chat-menu-icon` | SVG icon wrapper: `flex-shrink: 0`, `opacity: 0.7` |
+| `.new-chat-menu-label` | `flex: 1`, `min-width: 0` for text |
+
+**Files changed:** `index.html`, `src/main.js`, `src/theme.css`.
+
+### User message background contrast
+
+User message bubbles now have a more distinct background compared to assistant messages. The change increases contrast by adjusting the opacity of the `--secondary` HSL variable.
+
+**Light theme:** `hsl(var(--secondary) / 0.88)` → `hsl(var(--secondary))` (full opacity, ~12% brighter).
+
+**Dark theme:** `hsl(var(--secondary) / 0.5)` → `hsl(var(--secondary) / 0.65)` (+15% opacity increase).
+
+**Files changed:** `src/theme.css`.
+
+### Version bump
+
+- `package.json` → **1.11.03**
+
+---
+
 ## Release notes (1.11.01)
 
 ### Strict provider-slot binding for ReRank and Keeper

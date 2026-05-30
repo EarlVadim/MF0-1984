@@ -3696,18 +3696,17 @@ function resetComposerAttachUi() {
 
 function initNewDialogueButton() {
   const btn = document.getElementById("btn-new-dialogue");
-  if (!btn) return;
+  const menu = document.getElementById("new-chat-menu");
+  if (!btn || !menu) return;
 
-  btn.addEventListener("click", () => {
+  /** Common reset: clear UI to a blank chat state. */
+  function resetToBlankChat() {
     chatComposerSending = false;
     closeMobileThemesDropdown();
     closeAnalyticsView();
     closeMemoryTree();
     closeIrChatPanel();
     closeHelpChatFullyForNavigation();
-    activeThemeId = null;
-    activeDialogId = null;
-    expandedThemeDialogListThemeId = null;
     const list = document.getElementById("messages-list");
     if (list) revokeSentUserAttachmentBlobUrls(list);
     list?.replaceChildren();
@@ -3716,9 +3715,7 @@ function initNewDialogueButton() {
     });
     const viewport = document.getElementById("messages-viewport");
     if (viewport) viewport.scrollTop = 0;
-
     resetComposerAttachUi();
-
     const ta = document.getElementById("chat-input");
     const sendNew = document.getElementById("btn-chat-send");
     if (sendNew) sendNew.disabled = false;
@@ -3728,8 +3725,69 @@ function initNewDialogueButton() {
       syncChatInputHeight(ta);
       ta.focus();
     }
-    appendActivityLog("New chat: cleared, new thread started");
+  }
+
+  function openNewChatMenu() {
+    const r = btn.getBoundingClientRect();
+    menu.style.top = `${r.bottom + 4}px`;
+    menu.style.left = `${r.left}px`;
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+  }
+
+  function closeNewChatMenu() {
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  }
+
+  // Toggle dropdown on click
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!menu.hidden) {
+      closeNewChatMenu();
+    } else {
+      openNewChatMenu();
+    }
   });
+
+  // Menu item: "New dialog in current theme" (default)
+  menu.querySelector('[data-action="dialog-in-theme"]')?.addEventListener("click", () => {
+    closeNewChatMenu();
+    const keepThemeId = activeThemeId;
+    resetToBlankChat();
+    // Keep activeThemeId so first message creates dialog under current theme
+    activeThemeId = keepThemeId;
+    activeDialogId = null;
+    expandedThemeDialogListThemeId = keepThemeId;
+    appendActivityLog("New chat: new dialog in current theme");
+  });
+
+  // Menu item: "New theme"
+  menu.querySelector('[data-action="new-theme"]')?.addEventListener("click", () => {
+    closeNewChatMenu();
+    resetToBlankChat();
+    // Clear theme so first message bootstraps a new theme + dialog
+    activeThemeId = null;
+    activeDialogId = null;
+    expandedThemeDialogListThemeId = null;
+    appendActivityLog("New chat: new theme started");
+  });
+
+  // Close on outside click
+  document.addEventListener("click", (e) => {
+    if (menu.hidden) return;
+    if (btn.contains(e.target) || menu.contains(e.target)) return;
+    closeNewChatMenu();
+  });
+
+  // Close on Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
+      closeNewChatMenu();
+      btn.focus();
+      e.stopPropagation();
+    }
+  }, true);
 }
 
 function initAttachMenu() {

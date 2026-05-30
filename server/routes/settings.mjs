@@ -26,7 +26,6 @@ function loadOpenRouterModels() {
         inputPer1M:  Number(e.inputPer1M)  || 0,
         outputPer1M: Number(e.outputPer1M) || 0,
         rerankModel: typeof e.rerankModel === "string" ? e.rerankModel.trim() : "",
-        keeperModel: typeof e.keeperModel === "string" ? e.keeperModel.trim() : "",
         modes:       e.modes && typeof e.modes === "object" ? e.modes : {},
       }));
   } catch (e) {
@@ -53,7 +52,6 @@ function sanitizeModelEntry(entry) {
     inputPer1M:  Number(e.inputPer1M)  || 0,
     outputPer1M: Number(e.outputPer1M) || 0,
     rerankModel: typeof e.rerankModel === "string" ? e.rerankModel.trim() : "",
-    keeperModel: typeof e.keeperModel === "string" ? e.keeperModel.trim() : "",
     modes:       e.modes && typeof e.modes === "object" ? e.modes : {},
   };
 }
@@ -119,9 +117,12 @@ router.get("/settings/configured-providers", (_req, res) => {
 
 /**
  * GET /api/settings/openrouter-models
- * Returns OpenRouter model entries from openrouter-models.json.
+ * Returns OpenRouter model entries from openrouter-models.txt.
+ * Supports two line formats (lines starting with # and blank lines are ignored):
+ *   Legacy:  model_id
+ *   New:     model_id | input_per_1M_USD | output_per_1M_USD
  *
- * Response: { ok: true, models: Array<{ id, shortName, inputPer1M, outputPer1M, rerankModel, keeperModel, modes }> }
+ * Response: { ok: true, models: Array<{ id: string, inputPer1M: number, outputPer1M: number }> }
  */
 router.get("/settings/openrouter-models", (_req, res) => {
   try {
@@ -152,7 +153,7 @@ router.put("/settings/openrouter-models", (req, res) => {
 
 /**
  * POST /api/settings/openrouter-models
- * Add a single model entry. Body: { id, shortName, desc, inputPer1M, outputPer1M, rerankModel, keeperModel, modes }
+ * Add a single model entry. Body: { id, shortName, desc, inputPer1M, outputPer1M, rerankModel, modes }
  * Returns 409 if a model with the same id already exists.
  */
 router.post("/settings/openrouter-models", (req, res) => {

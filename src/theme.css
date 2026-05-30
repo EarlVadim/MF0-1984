@@ -441,6 +441,84 @@ body {
   font-size: 0.8125rem;
 }
 
+/* ── New chat dropdown ──────────────────────────────────────────────────── */
+
+.new-chat-dropdown-wrap {
+  position: relative;
+}
+
+.new-chat-chevron {
+  margin-left: 2px;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+#btn-new-dialogue[aria-expanded="true"] .new-chat-chevron {
+  transform: rotate(180deg);
+}
+
+.new-chat-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 12rem;
+  padding: 0.35rem 0;
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.12),
+    0 4px 6px -4px rgb(0 0 0 / 0.08);
+}
+
+.dark .new-chat-menu {
+  box-shadow:
+    0 10px 40px rgb(0 0 0 / 0.4),
+    0 4px 12px rgb(0 0 0 / 0.25);
+}
+
+.new-chat-menu[hidden] {
+  display: none !important;
+}
+
+.new-chat-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+  white-space: nowrap;
+}
+
+.new-chat-menu-item:hover,
+.new-chat-menu-item:focus-visible {
+  background: hsl(var(--muted) / 0.45);
+  outline: none;
+}
+
+.new-chat-menu-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--foreground));
+  opacity: 0.7;
+}
+
+.new-chat-menu-label {
+  flex: 1;
+  min-width: 0;
+}
+
 .btn-attach-trigger {
   min-width: 2rem;
 }
@@ -2329,7 +2407,7 @@ button.btn {
   width: fit-content;
   max-width: 100%;
   border: 1px solid hsl(var(--border));
-  background: hsl(var(--secondary) / 0.88);
+  background: hsl(var(--secondary));
   color: hsl(var(--secondary-foreground));
   box-shadow: none;
   /* Match .msg-assistant horizontal padding (1.3rem); panel inset from frame */
@@ -2337,7 +2415,7 @@ button.btn {
 }
 
 .dark .msg-user {
-  background: hsl(var(--secondary) / 0.5);
+  background: hsl(var(--secondary) / 0.7);
   color: hsl(var(--secondary-foreground));
 }
 
@@ -2689,7 +2767,7 @@ a.chat-attach-tile--sent-blob {
 @media (min-width: 768px) {
   .msg-user,
   .msg-assistant {
-    max-width: 90%;
+    max-width: 95%;
   }
 }
 
@@ -4008,6 +4086,15 @@ html.theme-rename-modal-open {
 
   .header-actions .btn .btn-mobile-icon {
     display: block;
+  }
+
+  .new-chat-dropdown-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .new-chat-menu {
+    min-width: 10rem;
   }
 
   .btn-mobile-only {
@@ -5535,10 +5622,11 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
 
 .or-models-list-item {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 7px 6px 7px 4px;
   border: none;
   border-radius: 7px;
   background: transparent;
@@ -5546,6 +5634,7 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
   text-align: left;
   font-family: inherit;
   transition: background 0.1s;
+  user-select: none;
 }
 
 .or-models-list-item:hover {
@@ -5554,6 +5643,41 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
 
 .or-models-list-item.selected {
   background: hsl(var(--primary));
+}
+
+.or-models-list-item--dragging {
+  opacity: 0.45;
+  background: hsl(var(--accent) / 0.25);
+}
+
+.or-models-list-grip {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: hsl(var(--muted-foreground) / 0.5);
+  cursor: grab;
+  padding: 0 2px;
+  letter-spacing: -2px;
+}
+
+.or-models-list-item:hover .or-models-list-grip {
+  color: hsl(var(--muted-foreground) / 0.8);
+}
+
+.or-models-list-item.selected .or-models-list-grip {
+  color: hsl(var(--primary-foreground) / 0.5);
+}
+
+.or-models-list-grip:active {
+  cursor: grabbing;
+}
+
+.or-models-list-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
 }
 
 .or-models-list-name {
