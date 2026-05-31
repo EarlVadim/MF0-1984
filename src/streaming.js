@@ -19,6 +19,9 @@ import {
 export async function streamOpenAICompatJson(res, onDelta) {
   if (!res.ok) {
     const err = await res.text();
+    console.error(`[STREAM] streamOpenAICompatJson ERROR: status=${res.status} ${res.statusText}`);
+    console.error(`[STREAM] streamOpenAICompatJson ERROR body:`, err.slice(0, 2000));
+    console.error(`[STREAM] streamOpenAICompatJson ERROR headers:`, JSON.stringify(Object.fromEntries(res.headers.entries()), null, 2));
     let msg = err.slice(0, 400);
     try {
       const j = JSON.parse(err);
@@ -26,7 +29,8 @@ export async function streamOpenAICompatJson(res, onDelta) {
     } catch {
       /* ignore */
     }
-    throw new Error(msg || res.statusText);
+    const errDetail = (msg || res.statusText || `HTTP ${res.status}`).trim();
+    throw new Error(`Stream HTTP ${res.status}: ${errDetail}`);
   }
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");

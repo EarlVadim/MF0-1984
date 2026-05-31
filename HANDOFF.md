@@ -4,6 +4,77 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (1.11.05)
+
+### LLM proxy: filter browser `accept-encoding` header
+
+The server-side LLM proxy (`server/routes/llm.mjs`) now strips `accept-encoding` from browser requests before forwarding to upstream providers. Previously, the browser's `accept-encoding: gzip, deflate, br` was forwarded — upstream providers responded with gzip-compressed error bodies (e.g. HTTP 429 from Gemini) that Node's `http.request` does not auto-decompress, producing garbled binary in error messages. Now upstream receives plain requests and returns readable JSON/plain-text errors.
+
+`SKIP_REQ_HEADERS` in `llm.mjs` extended with `"accept-encoding"`.
+
+### Native rerank API support (`callRerank` + `isRerankModel`)
+
+Models with `rerank` in their name (e.g. `cohere/rerank-v3.5`) now use the native `/v1/rerank` API endpoint instead of `/v1/chat/completions`. Previously, rerank models were sent through the chat completions path, causing HTTP 400 from OpenRouter.
+
+**New functions in `src/llmGateway.js`:**
+
+- `isRerankModel(model)` — returns `true` if model name contains `rerank`
+- `callRerank(opts)` — POST to `/api/llm/${provider}/api/v1/rerank` with `{ model, query, documents[], top_n }`, returns `{ results: [{ index, relevanceScore }] }`
+
+**Changes in `src/memoryTreeRouter.js`:**
+
+- `useNativeRerankApi = isRerankModel(rerankModel)` — detects rerank vs chat model before calling
+- If rerank model → `callRerank()` (native API)
+- If chat model → `runRouterLlm()` (existing path)
+- `routerDiag.rerankMode` field: `"native"` or `"chat"`
+
+### Gemini retry with backoff on 429/503
+
+`callLlm()` for `gemini-flash` now retries up to 2 times on HTTP 429 (rate limit) or 503 (service unavailable). Backoff: 1.5 s × attempt number. Non-retryable errors (400, 401, etc.) throw immediately.
+
+### Rerank fallback across providers
+
+When the rerank call fails on the active provider (e.g. Gemini free-tier quota exhausted), the router now tries fallback providers from the priority list instead of immediately falling back to deterministic supplement.
+
+**New function `getRerankFallbackProviders()`** in `memoryTreeRouter.js`:
+
+- Iterates `analysisPriority` (or default: `or-3, or-2, or-1, ollama, gemini-flash, openai, anthropic`)
+- Skips the original provider and providers without API keys
+- OR slots as fallback use `cohere/rerank-v3.5` (native rerank)
+- Other providers use their `ROUTER_MODEL` / `routerModels` default model
+
+**Rerank attempt loop:**
+
+1. Try primary provider
+2. On failure → try next fallback provider
+3. On success → use that provider's results
+4. All providers exhausted → deterministic fallback (same as before)
+
+**`routerDiag` extended:**
+
+| Field | Meaning |
+|---|---|
+| `rerankMs` | Total rerank time in ms (includes fallback attempts) |
+| `pickedProvider` | Provider that actually performed rerank |
+| `rerankFallback` | `true` if a fallback provider was used |
+| `rerankProvider` | Alias for `pickedProvider` |
+
+**Activity log:**
+
+```
+[memRouter] rerank fell back: gemini-flash/gemini-2.0-flash → or-3/cohere/rerank-v3.5
+```
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `server/routes/llm.mjs` | `accept-encoding` added to `SKIP_REQ_HEADERS` |
+| `src/llmGateway.js` | `isRerankModel()`, `callRerank()`, Gemini retry with backoff |
+| `src/memoryTreeRouter.js` | `getRerankFallbackProviders()`, rerank fallback loop, `rerankMs` in `routerDiag` |
+
+---
+
 ## Release notes (1.11.03)
 
 ### OpenRouter Models drag-and-drop reorder
@@ -85,6 +156,57 @@ User message bubbles now have a more distinct background compared to assistant m
 **Dark theme:** `hsl(var(--secondary) / 0.5)` → `hsl(var(--secondary) / 0.65)` (+15% opacity increase).
 
 **Files changed:** `src/theme.css`.
+
+### OpenRouter account balance display
+
+The OpenRouter account balance is now shown in the page header as `OpenRouter balance: [balance] $`. The balance is fetched automatically after every Keeper response and once at page load. If the balance is below $1, the value turns red.
+
+**How it works:**
+
+1. A new server endpoint `GET /api/settings/openrouter-balance` proxies the OpenRouter `/api/v1/credits` API using a Management API Key stored in the `OPENROUTER_MANAGEMENT_KEY` environment variable.
+2. The server caches the result for 60 seconds to avoid hammering the OR API. On network errors, stale cache is returned.
+3. The client function `refreshOrBalance()` calls the endpoint and updates the header element. It runs:
+   - Once at page startup (after database connection is confirmed)
+   - After every Keeper response (fire-and-forget)
+4. If `OPENROUTER_MANAGEMENT_KEY` is not configured, the endpoint returns `{ ok: false }` and the balance element stays hidden.
+
+**Server (`server/routes/settings.mjs`):**
+
+- `GET /api/settings/openrouter-balance` — fetches `https://openrouter.ai/api/v1/credits` with `Authorization: Bearer <mgmt-key>`, returns `{ ok, total_credits, total_usage, balance }`. Balance is `total_credits - total_usage`, rounded to 2 decimal places.
+- In-memory cache: `_orBalanceCache` with 1-minute TTL. Stale cache served on network error.
+- `AbortSignal.timeout(8_000)` for upstream timeout.
+
+**Environment variable:**
+
+```
+OPENROUTER_MANAGEMENT_KEY=sk-or-mgmt-...
+```
+
+Create a Management Key at https://openrouter.ai/settings/keys (enable the "Management key" option).
+
+**HTML (`index.html`):**
+
+New `<div class="header-or-balance" id="header-or-balance" hidden>` placed between `header-actions` and `header-icons` in the `<header>`. Contains a label span and a value span. Starts hidden; revealed only when the API returns a valid balance.
+
+**CSS (`src/theme.css`):**
+
+| Class | Purpose |
+|---|---|
+| `.header-or-balance` | Flex row, `margin-left: auto` (pushes icons to right), 0.75 rem font, muted-foreground color |
+| `.header-or-balance-label` | `opacity: 0.7` |
+| `.header-or-balance-value` | `font-weight: 600`, `font-variant-numeric: tabular-nums`, foreground color |
+| `.header-or-balance-value--low` | Red color `hsl(0, 72%, 42%)` when balance < $1 |
+| Mobile override | `order: 3`, `margin-left: 0`, smaller font (0.6875 rem) |
+
+**JS (`src/main.js`):**
+
+- `refreshOrBalance()` — async function: fetches `/api/settings/openrouter-balance`, updates `#header-or-balance-value` text and visibility. Non-critical (swallows errors).
+- Called at startup after `loadMemoryGraphIntoUi()` (fire-and-forget).
+- Called after `runKeepersAfterTurn()` (fire-and-forget).
+
+**`.env.example`:** added `OPENROUTER_MANAGEMENT_KEY` with comment.
+
+**Files changed:** `server/routes/settings.mjs`, `src/main.js`, `src/theme.css`, `index.html`, `.env.example`.
 
 ### Version bump
 

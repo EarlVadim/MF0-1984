@@ -11,9 +11,26 @@ const router = Router();
 const TIMEOUT_MS = 300_000;
 
 // Headers not forwarded from the browser request to the upstream provider.
+// Browser CORS/privacy headers must NOT be forwarded — the proxy is server-side,
+// and upstream providers (especially Ollama) reject requests with Origin headers
+// that don't match their CORS allow-list (OLLAMA_ORIGINS).
 const SKIP_REQ_HEADERS = new Set([
   "host", "connection", "transfer-encoding", "te",
   "anthropic-dangerous-direct-browser-access",
+  // Browser CORS headers — never needed server-side, cause 403 from Ollama:
+  "origin", "referer", "cookie",
+  // Browser Fetch Metadata / privacy headers — irrelevant for server-side proxy:
+  "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site",
+  "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform",
+  "sec-gpc", "dnt",
+  // Browser language preference — can confuse some APIs:
+  "accept-language",
+  // Browser compression preference — must NOT forward to upstream:
+  // When forwarded, upstream sends gzip/br-compressed error responses that the
+  // proxy cannot parse (Node http.request does not auto-decompress). This produces
+  // garbled binary in error messages.  Without this header, upstream sends plain
+  // text/JSON that the proxy can read and forward correctly.
+  "accept-encoding",
 ]);
 
 // Headers not forwarded from the upstream response back to the browser.
@@ -46,7 +63,7 @@ const PROVIDERS = {
       h["http-referer"]  = String(process.env.OPENROUTER_REFERER ?? "http://localhost:1984");
       h["x-title"]       = String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984");
     },
-  },	
+  },
   "or-2": {   // OpenRouter slot 2 (independent model selection)
     host:      "openrouter.ai",
     protocol:  "https",
@@ -56,7 +73,7 @@ const PROVIDERS = {
       h["http-referer"]  = String(process.env.OPENROUTER_REFERER ?? "http://localhost:1984");
       h["x-title"]       = String(process.env.OPENROUTER_APP_TITLE ?? "MF0-1984");
     },
-  },	
+  },
   "or-3": {   // OpenRouter slot 2 (independent model selection)
     host:      "openrouter.ai",
     protocol:  "https",
@@ -116,6 +133,21 @@ function makeProxyHandler(providerName) {
       headers["content-type"] = "application/json";
     }
 
+    // ── Capture diagnostics for error reporting ──
+    const diag = {
+      provider: providerName,
+      upstreamTarget: `${cfg.protocol}://${cfg.host}:${cfg.port ?? (cfg.protocol === "http" ? 80 : 443)}`,
+      upstreamPath,
+      method: req.method,
+      browserHeaders: { ...req.headers },
+      forwardedHeaders: { ...headers },
+      bodyPreview: bodyBuf ? (bodyBuf.length > 1000 ? bodyBuf.slice(0, 1000).toString() + '...[truncated]' : bodyBuf.toString()) : null,
+      upstreamStatus: null,
+      upstreamStatusText: null,
+      upstreamResponseHeaders: null,
+      upstreamBody: null,
+    };
+
     const lib = cfg.protocol === "http" ? http : https;
     const proxyReq = lib.request({
       hostname: cfg.host,
@@ -138,6 +170,39 @@ function makeProxyHandler(providerName) {
         resCt.includes("application/x-ndjson") ||
         upstreamPath.includes("streamGenerateContent");
 
+      diag.upstreamStatus = proxyRes.statusCode;
+      diag.upstreamStatusText = proxyRes.statusMessage;
+      diag.upstreamResponseHeaders = { ...proxyRes.headers };
+
+      // ── On error: intercept, collect full body, return JSON with diagnostics ──
+      if (proxyRes.statusCode && proxyRes.statusCode >= 400) {
+        const chunks = [];
+        proxyRes.on("data", (chunk) => chunks.push(chunk));
+        proxyRes.on("end", () => {
+          diag.upstreamBody = Buffer.concat(chunks).toString().slice(0, 4000);
+
+          // Try to extract a human-readable error message from the upstream body
+          let upstreamErrorMsg = "";
+          try {
+            const j = JSON.parse(diag.upstreamBody);
+            upstreamErrorMsg = j.error?.message ?? j.message ?? (typeof j.error === "string" ? j.error : "") ?? "";
+          } catch {
+            upstreamErrorMsg = diag.upstreamBody.slice(0, 500);
+          }
+
+          // Return the upstream status with a JSON body containing BOTH the error and full diagnostics
+          if (!res.headersSent) {
+            res.status(proxyRes.statusCode).json({
+              ok: false,
+              error: upstreamErrorMsg || proxyRes.statusMessage || `HTTP ${proxyRes.statusCode}`,
+              diagnostics: diag,
+            });
+          }
+        });
+        return;  // Don't pipe — we're sending our own response
+      }
+
+      // ── Success path: pipe as before ──
       const resHeaders = {};
       for (const [k, v] of Object.entries(proxyRes.headers)) {
         if (!SKIP_RES_HEADERS.has(k.toLowerCase())) resHeaders[k] = v;
@@ -157,8 +222,13 @@ function makeProxyHandler(providerName) {
     });
 
     proxyReq.on("error", (e) => {
+      diag.upstreamBody = e.message;
       if (!res.headersSent) {
-        res.status(502).json({ ok: false, error: e.message });
+        res.status(502).json({
+          ok: false,
+          error: e.message,
+          diagnostics: diag,
+        });
       } else {
         res.destroy();
       }
@@ -166,8 +236,13 @@ function makeProxyHandler(providerName) {
 
     proxyReq.on("timeout", () => {
       proxyReq.destroy();
+      diag.upstreamBody = "Upstream timeout";
       if (!res.headersSent) {
-        res.status(504).json({ ok: false, error: "Upstream timeout" });
+        res.status(504).json({
+          ok: false,
+          error: "Upstream timeout",
+          diagnostics: diag,
+        });
       } else {
         res.destroy();
       }

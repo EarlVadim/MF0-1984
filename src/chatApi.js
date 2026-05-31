@@ -424,10 +424,12 @@ export async function completeChatMessage(providerId, text, apiKey, options = {}
     });
   }
 
+  const resolvedModelNonStream = pickModel(providerId, webSearch, deepResearch);
+  console.log(`[CHAT-API] completeChatMessage → callLlm, provider=${providerId}, model=${resolvedModelNonStream}`);
   return callLlm({
     provider: providerId,
     key,
-    model: pickModel(providerId, webSearch, deepResearch),
+    model: resolvedModelNonStream,
     messages: messages ?? rawMsgs,
     system: providerId === "gemini-flash" ? undefined : system,
     tools: (providerId === "anthropic" && useWebGrounding)
@@ -541,6 +543,7 @@ export async function completeChatMessageStreaming(providerId, text, apiKey, onD
     const currentModel = getUserAiModel(providerId, "dialogue");
     const orMode = deepResearch ? "research" : webSearch ? "search" : "dialogue";
     const { model: orModel, tools: orTools } = await getOrModelMode(currentModel, orMode);
+    console.log(`[CHAT-API] completeChatMessageStreaming → callLlmStream, provider=${providerId}, model=${orModel}`);
     return callLlmStream({
       provider: providerId, key,
       model: orModel,
@@ -557,10 +560,12 @@ export async function completeChatMessageStreaming(providerId, text, apiKey, onD
     });
   }
 
+  const resolvedModel = pickModel(providerId, webSearch, deepResearch);
+  console.log(`[CHAT-API] completeChatMessageStreaming → callLlmStream, provider=${providerId}, model=${resolvedModel}`);
   return callLlmStream({
     provider: providerId,
     key,
-    model: pickModel(providerId, webSearch, deepResearch),
+    model: resolvedModel,
     messages: messages ?? rawMsgs,
     system: providerId === "gemini-flash" ? undefined : system,
     maxTokens: 4096,
@@ -989,7 +994,7 @@ export async function completeImageGeneration(providerId, prompt, apiKey, option
     }
     case "anthropic":
     case "ollama":
-    case "or-1`":
+    case "or-1":
     case "or-2":
     case "or-3":
       throw new Error(

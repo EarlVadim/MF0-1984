@@ -17,6 +17,19 @@ import {
   pickPerplexityCitationPayload,
 } from "./footnoteCitations.js";
 
+// ─── Rerank model detection ──────────────────────────────────────────────────
+
+/**
+ * Returns true if the model name looks like a native reranking model
+ * (e.g. "cohere/rerank-v3.5") that uses the /v1/rerank API
+ * instead of /v1/chat/completions.
+ * @param {string} model
+ * @returns {boolean}
+ */
+export function isRerankModel(model) {
+  return /\brerank\b/i.test(String(model ?? ""));
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /**
@@ -300,9 +313,9 @@ export async function callLlm(opts) {
     }
 
     case "or-1":
-	case "or-2":
+    case "or-2":
     case "or-3":
-    case "openrouter":	{
+    case "openrouter":  {
       // OpenRouter uses the same OpenAI-compatible format.
       // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
       const systemMsg = system ? [{ role: "system", content: system }] : [];
@@ -313,7 +326,7 @@ export async function callLlm(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      const res = await fetch("/api/llm/or-1/api/v1/chat/completions", {
+      const res = await fetch(`/api/llm/${provider}/api/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify(body),
@@ -359,17 +372,40 @@ export async function callLlm(opts) {
     case "gemini-flash": {
       const parts = geminiParts ?? [{ text: geminiFlattenMessages(system ?? "", messages) }];
       const url = `/api/llm/gemini/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(geminiBodyFromParts(parts, model, Boolean(googleSearch), {
-          temperature,
-          maxOutputTokens: maxTokens || undefined,
-        })),
-        signal: abortSignal || undefined,
-      });
-      if (!res.ok) throw new Error(await readErrorBody(res));
-      const data = await res.json();
+      const body = JSON.stringify(geminiBodyFromParts(parts, model, Boolean(googleSearch), {
+        temperature,
+        maxOutputTokens: maxTokens || undefined,
+      }));
+      const MAX_GEMINI_RETRIES = 2;
+      let lastRes = null;
+      for (let attempt = 0; attempt <= MAX_GEMINI_RETRIES; attempt++) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: abortSignal || undefined,
+        });
+        if (res.ok) { lastRes = res; break; }
+        // Retry on transient errors (429 rate-limit, 503 service unavailable)
+        if ((res.status === 429 || res.status === 503) && attempt < MAX_GEMINI_RETRIES) {
+          const delay = 1500 * (attempt + 1);
+          console.warn(`[LLM-GW] callLlm ← gemini-flash ${res.status}, retry ${attempt + 1}/${MAX_GEMINI_RETRIES} in ${delay}ms`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        // Non-retryable or retries exhausted — throw with readable error
+        lastRes = res;
+        const errBody = await res.text();
+        let errMsg = `Gemini HTTP ${res.status}`;
+        try {
+          const errJson = JSON.parse(errBody);
+          errMsg += `: ${errJson.error?.message ?? errJson.message ?? (typeof errJson.error === "string" ? errJson.error : null) ?? errBody.slice(0, 280)}`;
+        } catch {
+          errMsg += `: ${errBody.slice(0, 280)}`;
+        }
+        throw new Error(errMsg);
+      }
+      const data = await lastRes.json();
       const cand = data.candidates?.[0]?.content?.parts;
       text = Array.isArray(cand)
         ? cand.filter((p) => p && p.thought !== true).map((p) => p.text).filter(Boolean).join("\n").trim()
@@ -397,13 +433,31 @@ export async function callLlm(opts) {
       const body = { model, messages: allMsgs };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
+      console.log(`[LLM-GW] callLlm → ollama, model=${model}, msgs=${allMsgs.length}, stream=false`);
       const res = await fetch("/api/llm/ollama/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: abortSignal || undefined,
       });
-      if (!res.ok) throw new Error(await readErrorBody(res));
+      console.log(`[LLM-GW] callLlm ← ollama response: status=${res.status} ${res.statusText}`);
+      if (!res.ok) {
+        let errText = '';
+        let diagInfo = '';
+        try {
+          errText = await res.text();
+          const errJson = JSON.parse(errText);
+          const errMsg = errJson.error || res.statusText || `HTTP ${res.status}`;
+          if (errJson.diagnostics) {
+            const d = errJson.diagnostics;
+            diagInfo = ` | upstream=${d.upstreamTarget}${d.upstreamPath} status=${d.upstreamStatus} upstreamHeaders=${JSON.stringify(d.upstreamResponseHeaders || {}).slice(0, 500)} upstreamBody=${(d.upstreamBody || '').slice(0, 500)}`;
+          }
+          throw new Error(`Ollama HTTP ${res.status}: ${errMsg}${diagInfo}`);
+        } catch (e) {
+          if (e.message.includes('Ollama HTTP')) throw e;
+          throw new Error(`Ollama HTTP ${res.status}: ${(errText.slice(0, 280) || res.statusText || `HTTP ${res.status}`).trim()}`);
+        }
+      }
       const data = await res.json();
       text = openAiContentToString(data.choices?.[0]?.message?.content);
       if (!text.trim()) throw new Error("Empty API response");
@@ -418,6 +472,69 @@ export async function callLlm(opts) {
   const usage = usageWithFallback(rawUsage, basis, text);
   if (requestKind) await recordAux(provider, requestKind, usage, analytics);
   return { text, usage };
+}
+
+// ─── callRerank — native rerank API (e.g. cohere/rerank-v3.5 via OpenRouter) ──
+
+/**
+ * Call a native reranking model via the /v1/rerank API.
+ * Only works with providers that support rerank endpoints (OpenRouter OR slots).
+ *
+ * @param {{
+ *   provider: string,       // e.g. "or-1", "or-2", "or-3"
+ *   key: string,
+ *   model: string,          // e.g. "cohere/rerank-v3.5"
+ *   query: string,          // the user's question
+ *   documents: string[],    // candidate documents to rank
+ *   topN?: number,          // max results (default 22)
+ * }} opts
+ * @returns {Promise<{ results: Array<{ index: number, relevanceScore: number }> }>}
+ */
+export async function callRerank(opts) {
+  const { provider, key, model, query, documents, topN = 22 } = opts;
+
+  if (!isRerankModel(model)) {
+    throw new Error(`callRerank: model "${model}" is not a rerank model`);
+  }
+
+  const body = {
+    model,
+    query: String(query).slice(0, 8000),
+    documents: documents.map(d => String(d)),
+    top_n: Math.min(topN, documents.length),
+  };
+
+  console.log(`[LLM-GW] callRerank → ${provider}, model=${model}, docs=${documents.length}, topN=${topN}`);
+
+  const res = await fetch(`/api/llm/${provider}/api/v1/rerank`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+  });
+
+  console.log(`[LLM-GW] callRerank ← ${provider} response: status=${res.status} ${res.statusText}`);
+
+  if (!res.ok) {
+    const errText = await res.text();
+    let errMsg = `Rerank HTTP ${res.status}`;
+    try {
+      const errJson = JSON.parse(errText);
+      errMsg += `: ${errJson.error?.message ?? errJson.message ?? errJson.error ?? errText.slice(0, 280)}`;
+    } catch {
+      errMsg += `: ${errText.slice(0, 280)}`;
+    }
+    throw new Error(errMsg);
+  }
+
+  const data = await res.json();
+  const results = (data.results || []).map(r => ({
+    index: Number(r.index ?? 0),
+    relevanceScore: Number(r.relevance_score ?? 0),
+  }));
+
+  console.log(`[LLM-GW] callRerank ← results: ${results.length}, top score=${results[0]?.relevanceScore?.toFixed(3) ?? "?"}`);
+
+  return { results };
 }
 
 // ─── callLlmStream — streaming ────────────────────────────────────────────────
@@ -447,7 +564,7 @@ export async function callLlm(opts) {
 export async function callLlmStream(opts) {
   const {
     provider, key, model, messages = [], system,
-    maxTokens, tools, disableSearch, googleSearch,
+    temperature, maxTokens, tools, disableSearch, googleSearch,
     geminiParts,
     onDelta,
     requestKind, analytics = {}, abortSignal,
@@ -499,12 +616,31 @@ export async function callLlmStream(opts) {
       const body = { model, messages: allMsgs, stream: true };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
+      console.log(`[LLM-GW] callLlmStream → ollama, model=${model}, msgs=${allMsgs.length}, stream=true`);
       const res = await fetch("/api/llm/ollama/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
         body: JSON.stringify(body),
         signal: abortSignal || undefined,
       });
+      console.log(`[LLM-GW] callLlmStream ← ollama response: status=${res.status} ${res.statusText}`);
+      if (!res.ok) {
+        let errText = '';
+        let diagInfo = '';
+        try {
+          errText = await res.text();
+          const errJson = JSON.parse(errText);
+          const errMsg = errJson.error || res.statusText || `HTTP ${res.status}`;
+          if (errJson.diagnostics) {
+            const d = errJson.diagnostics;
+            diagInfo = ` | upstream=${d.upstreamTarget}${d.upstreamPath} status=${d.upstreamStatus} upstreamHeaders=${JSON.stringify(d.upstreamResponseHeaders || {}).slice(0, 500)} upstreamBody=${(d.upstreamBody || '').slice(0, 500)}`;
+          }
+          throw new Error(`Ollama HTTP ${res.status}: ${errMsg}${diagInfo}`);
+        } catch (e) {
+          if (e.message.includes('Ollama HTTP')) throw e;
+          throw new Error(`Ollama HTTP ${res.status}: ${(errText.slice(0, 280) || res.statusText || `HTTP ${res.status}`).trim()}`);
+        }
+      }
       const oStream = await streamOpenAICompatJson(res, onDelta);
       text = oStream.text;
       rawUsage = oStream.usage ?? null;
@@ -512,7 +648,7 @@ export async function callLlmStream(opts) {
     }
 
     case "or-1":
-	case "or-2":
+    case "or-2":
     case "or-3": {
       // OpenRouter uses the same OpenAI-compatible format.
       // Model is passed as-is (e.g. "meta-llama/llama-3.3-70b-instruct:free").
@@ -521,20 +657,23 @@ export async function callLlmStream(opts) {
         ...systemMsg,
         ...messages.filter((m) => m.role !== "system"),
       ]);
-      const body = { model, messages: allMsgs };
+      /** @type {Record<string, unknown>} */
+      const body = { model, messages: allMsgs, stream: true };
       if (temperature != null) body.temperature = temperature;
       if (maxTokens) body.max_tokens = maxTokens;
-      const res = await fetch("/api/llm/or-1/api/v1/chat/completions", {
+      const res = await fetch(`/api/llm/${provider}/api/v1/chat/completions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          Authorization: `Bearer ${key}`,
+        },
         body: JSON.stringify(body),
         signal: abortSignal || undefined,
       });
-      if (!res.ok) throw new Error(await readErrorBody(res));
-      const data = await res.json();
-      text = openAiContentToString(data.choices?.[0]?.message?.content);
-      if (!text.trim()) throw new Error("Empty API response");
-      rawUsage = usageFromOpenAiStyle(data.usage);
+      const orStream = await streamOpenAICompatJson(res, onDelta);
+      text = orStream.text;
+      rawUsage = orStream.usage ?? null;
       break;
     }
 

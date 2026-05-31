@@ -432,7 +432,32 @@ body {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+}
+
+/* ── OpenRouter balance ─────────────────────────────────────────────────── */
+
+.header-or-balance {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   margin-left: auto;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+
+.header-or-balance-label {
+  opacity: 0.7;
+}
+
+.header-or-balance-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+}
+
+.header-or-balance-value--low {
+  color: hsl(0, 72%, 42%);
 }
 
 .header .btn {
@@ -2415,7 +2440,7 @@ button.btn {
 }
 
 .dark .msg-user {
-  background: hsl(var(--secondary) / 0.7);
+  background: hsl(var(--secondary) / 0.65);
   color: hsl(var(--secondary-foreground));
 }
 
@@ -2767,7 +2792,7 @@ a.chat-attach-tile--sent-blob {
 @media (min-width: 768px) {
   .msg-user,
   .msg-assistant {
-    max-width: 95%;
+    max-width: 90%;
   }
 }
 
@@ -4060,6 +4085,12 @@ html.theme-rename-modal-open {
     order: 1;
     margin-left: auto;
     flex-shrink: 0;
+  }
+
+  .header-or-balance {
+    order: 3;
+    margin-left: 0;
+    font-size: 0.6875rem;
   }
 
   .header-actions {

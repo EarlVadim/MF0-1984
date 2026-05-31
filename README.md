@@ -2,13 +2,13 @@
 
 **MF0-1984** is a **local-first** single-page app for multi-provider LLM chat, structured workflows (Intro / Access / Rules / Help), a **Memory tree** (3D graph over SQLite), **themes** and dialogs, **analytics**, **favorites**, and **project profile** backup/restore (`.mf` bundles).
 
-This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload** and **extended tool set** (bash, find, move, copy, mkdir), **login/password authentication**, **HTTPS**, **semantic memory search**, **per-model analytics**, a **stop-generation button**, **drag-and-drop model reorder** in the OR editor, and a **New Chat dropdown** (new dialog in current theme / new theme).
+This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload** and **extended tool set** (bash, find, move, copy, mkdir), **login/password authentication**, **HTTPS**, **semantic memory search**, **per-model analytics**, a **stop-generation button**, **drag-and-drop model reorder** in the OR editor, a **New Chat dropdown** (new dialog in current theme / new theme), an **OpenRouter balance display** in the header, **native rerank API support** (cohere/rerank-v3.5), and **rerank fallback across providers** (automatic provider switching when the active slot's rerank fails).
 
 | | |
 |---|---|
 | **UI dev server** | Vite — default port **1984** (`vite.config.js`) |
 | **Local API** | Node + `better-sqlite3` — default port **35184** (`API_PORT`) |
-| **Version** | **1.11.03** |
+| **Version** | **1.11.05** |
 | **Upstream** | [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984) |
 
 For architecture, data model, and operations see **[HANDOFF.md](./HANDOFF.md)**.
@@ -475,12 +475,13 @@ Visibility preference is stored in `localStorage` under `mf0.badge.visibility`.
 | AI opinion participants | All providers | Configurable checkboxes in Settings |
 | Per-dialog memory | Provider only | Provider + AI opinion mode + OR model per slot (persisted in DB) |
 | OpenRouter analytics | — | Per-slot **and** per-model pricing from `openrouter-models.json` |
-| Memory retrieval | Lexical + LLM rerank | + Semantic layer (pplx-embed-v1-4b, cosine, pool boosting) |
+| Memory retrieval | Lexical + LLM rerank | + Semantic layer (pplx-embed-v1-4b, cosine, pool boosting) + native rerank API + rerank fallback across providers |
 | Web Search / Research | — | OR slots support `openrouter:web_search` + `openrouter:web_fetch` server tools, configured per-model in `openrouter-models.json` |
 | OR model management | Edit JSON file | Full CRUD WebUI editor in Settings with responsive layout |
 | OR model reorder | Alphabetical only | Drag-and-drop with FLIP animation, persisted to server |
 | New chat | Single button (new theme only) | Dropdown: "New dialog in current theme" (default) / "New theme" |
 | User message background | Same opacity as assistant | Increased contrast (+15% opacity) for better visual distinction |
+| OR account balance | — | Header display of `total_credits − total_usage` via Management Key; refreshed after every Keeper turn |
 | Authentication | — | Login/password, session cookies, admin/user roles |
 | HTTPS | — | Standalone TLS proxy, auto self-signed cert for dev |
 

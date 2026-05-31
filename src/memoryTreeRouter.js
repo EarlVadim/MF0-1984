@@ -4,7 +4,7 @@
  * adapted to MF0’s graph shape: nodes { id, category, label, blob }, links { source, target, label }.
  */
 
-import { callLlm, usageWithFallback } from "./llmGateway.js";
+import { callLlm, callRerank, isRerankModel, usageWithFallback } from "./llmGateway.js";
 import { semanticCandidateIdsFromGraph } from "./memoryGraphSemanticSearch.js";
 
 /** First line of the supplement user message — must match fitContextToBudget detection. */
@@ -285,22 +285,48 @@ export function serializeMemoryGraphForRouter(graph, userQuery, opts = {}) {
 }
 
 /**
- * @param {Record<string, string>} allKeys
- * @param {string[]} [analysisPriority]
+ * Strict provider-slot binding: returns the active provider and its key.
+ * No cross-provider iteration — the router uses ONLY the slot the user is on.
+ * @param {Record<string, string>} allKeys  (kept for API compat, not iterated)
+ * @param {string[]} [analysisPriority]  (kept for API compat, not iterated)
  * @param {string} activeProviderId
  * @param {string} activeApiKey
  */
 function pickRouterKey(allKeys, analysisPriority, activeProviderId, activeApiKey) {
-  const preferred = Array.isArray(analysisPriority)
-    ? analysisPriority
-    : ["openai", "anthropic", "gemini-flash", "ollama", "or-1", "or-2", "or-3"];
-  for (const pid of preferred) {
-    const key = String(allKeys?.[pid] ?? "").trim();
-    if (key) return { providerId: pid, key };
-  }
   const k = String(activeApiKey ?? "").trim();
-  if (k) return { providerId: activeProviderId, key: k };
+  if (activeProviderId && k) return { providerId: activeProviderId, key: k };
   return { providerId: "", key: "" };
+}
+
+/**
+ * Returns fallback providers for rerank, ordered by priority.
+ * Skips the original provider (already tried), only includes providers with keys.
+ * @param {Record<string, string>} allKeys
+ * @param {string[]} [analysisPriority]
+ * @param {string} originalProviderId  — provider already tried, to skip
+ * @param {Record<string, string>} [routerModels]  — provider → default model mapping
+ * @returns {Array<{ providerId: string, key: string, rerankModel: string }>}
+ */
+function getRerankFallbackProviders(allKeys, analysisPriority, originalProviderId, routerModels) {
+  /** @type {Array<{ providerId: string, key: string, rerankModel: string }>} */
+  const fallbacks = [];
+  const priority = Array.isArray(analysisPriority) && analysisPriority.length > 0
+    ? analysisPriority
+    : ["or-3", "or-2", "or-1", "ollama", "gemini-flash", "openai", "anthropic"];
+  for (const pid of priority) {
+    if (pid === originalProviderId) continue;
+    const k = String(allKeys?.[pid] ?? "").trim();
+    if (!k) continue;
+    const isOrSlot = ["or-1", "or-2", "or-3"].includes(pid);
+    // For OR slots: prefer native rerank model (cohere/rerank-v3.5) since it's available;
+    // fall back to the chat model from routerModels/ROUTER_MODEL.
+    // For other providers: use routerModels mapping or ROUTER_MODEL default.
+    const rerankModel = isOrSlot
+      ? "cohere/rerank-v3.5"
+      : (routerModels?.[pid] ?? ROUTER_MODEL[pid] ?? "");
+    if (rerankModel) fallbacks.push({ providerId: pid, key: k, rerankModel });
+  }
+  return fallbacks;
 }
 
 /**
@@ -320,7 +346,8 @@ async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutToke
     ? rerankModelOverride.trim()
     : (ROUTER_MODEL[providerId] ?? (isGemini ? String(providerId).trim() : ""));
   if (!model) throw new Error(`Memory tree router: unsupported provider ${providerId}`);
-  return callLlm({
+  const t0 = performance.now();
+  const result = await callLlm({
     provider: gatewayProvider,
     key,
     model,
@@ -332,6 +359,9 @@ async function runRouterLlm(providerId, key, systemPrompt, userBlock, maxOutToke
     requestKind: null,
     promptBasis: `${systemPrompt}\n\n${ub}`,
   });
+  const elapsed = Math.round(performance.now() - t0);
+  console.log(`[memRouter] runRouterLlm: provider=${gatewayProvider} model=${model} promptChars=${ub.length} maxOut=${maxOutTokens} elapsed=${elapsed}ms`);
+  return result;
 }
 
 /**
@@ -383,8 +413,9 @@ function buildTitleChunks(rows, maxChars = 10_000) {
  * @param {string} key
  * @param {string} userQuery
  * @param {Array<{ id: string, category: string, label: string }>} rows
+ * @param {string} rerankModel
  */
-async function selectCandidateIdsByTitleChunks(providerId, key, userQuery, rows) {
+async function selectCandidateIdsByTitleChunks(providerId, key, userQuery, rows, rerankModel) {
   const chunks = buildTitleChunks(rows);
   /** @type {Set<string>} */
   const out = new Set();
@@ -768,6 +799,7 @@ function buildMemoryTreeRouterAnalytics(
  *   activeApiKey: string,
  *   dialogId?: string,
  *   rerankModelOverride?: string,
+ *   routerModels?: Record<string, string>,
  * }} args
  * @returns {Promise<{ supplement: string, memoryTreeRouterAnalytics: MemoryTreeRouterAnalytics | null }>}
  */
@@ -783,6 +815,7 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   // rerankModelOverride: for OR slots comes from openrouter-models.json via chatApi;
   // for other providers comes from localStorage via getRerankModel() in main.js
   const rerankModel = String(args.rerankModelOverride ?? "").trim();
+  const routerModels = args.routerModels ?? null;
 
   const { providerId, key } = pickRouterKey(
     args.allKeys ?? {},
@@ -852,6 +885,7 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
       args.allKeys?.["or-1"] || args.allKeys?.["or-2"] || args.allKeys?.["or-3"] || ""
     ).trim();
     if (orKey) {
+      const semT0 = performance.now();
       const semanticIds = await semanticCandidateIdsFromGraph(
         userQuery,
         rawNodes,
@@ -863,6 +897,8 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
       semanticIds.forEach((id, idx) => {
         semanticScoreById.set(id, n - idx);
       });
+      const semElapsed = Math.round(performance.now() - semT0);
+      console.log(`[memRouter] semanticCandidateIdsFromGraph: ${n} ids, elapsed=${semElapsed}ms`);
     }
   } catch {
     // non-critical — lexical+LLM path continues
@@ -944,24 +980,130 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
   const userBlock =
     `USER_QUESTION:\n${userQuery.slice(0, 8000)}\n\nCANDIDATES_JSON:\n` + JSON.stringify(poolForJson);
 
+  console.log(`[memRouter] rerank: pool=${poolForJson.length} candidates, userBlock chars=${userBlock.length}`);
+
+  // ── Detect whether the rerank model is a native reranking API model ──
+  const useNativeRerankApi = isRerankModel(rerankModel);
+  const fallbackModel = rerankModel || (ROUTER_MODEL[providerId] ?? providerId);
+  console.log(`[memRouter] rerank mode: ${useNativeRerankApi ? `native rerank API (${rerankModel})` : `chat-based LLM (${fallbackModel})`}`);
+
+  // ── Build ordered list of providers to try: primary first, then fallbacks ──
+  const primaryRerankEntry = { providerId, key, rerankModel };
+  const fallbackEntries = getRerankFallbackProviders(
+    args.allKeys ?? {}, args.analysisPriority, providerId, routerModels,
+  );
+  const rerankAttempts = [primaryRerankEntry, ...fallbackEntries];
+
   let rawText = "";
   let usage = null;
-  try {
-    const out = await runRouterLlm(
-      providerId,
-      key,
-      MEMORY_TREE_RERANK_SYSTEM,
-      userBlock,
-      RERANK_MAX_OUT,
-      rerankModel,
-    );
-    rawText = out.text;
-    usage = out.usage;
-  } catch {
+  let usedProvider = providerId;
+  let usedModel = rerankModel;
+  let usedNative = useNativeRerankApi;
+  let lastRerankErr = null;
+  let rerankMs = 0;
+  const rerankOverallT0 = performance.now();
+
+  for (let ri = 0; ri < rerankAttempts.length; ri++) {
+    const attempt = rerankAttempts[ri];
+    const attemptModel = attempt.rerankModel;
+    const attemptNative = isRerankModel(attemptModel);
+    const isPrimary = (ri === 0);
+
+    try {
+
+      if (attemptNative) {
+        // ── Native rerank API path (e.g. cohere/rerank-v3.5) ──
+        const docs = poolForJson.map(c =>
+          `${c.id} | ${c.category} / ${c.label} | ${c.blobExcerpt}`
+        );
+        const isGemini = String(attempt.providerId ?? "").toLowerCase().startsWith("gemini");
+        const gatewayProvider = isGemini ? "gemini-flash" : attempt.providerId;
+        const { results } = await callRerank({
+          provider: gatewayProvider,
+          key: attempt.key,
+          model: attemptModel,
+          query: userQuery,
+          documents: docs,
+          topN: MAX_IDS,
+        });
+        console.log(`[memRouter] rerank API complete: provider=${attempt.providerId} model=${attemptModel}, results=${results.length}`);
+        const rerankIds = results
+          .filter(r => r.relevanceScore > 0.05)
+          .map(r => poolForJson[r.index]?.id)
+          .filter(Boolean);
+        rawText = JSON.stringify({ ids: rerankIds, rationale: `native rerank (${attemptModel}): top ${results.length} by relevance` });
+        usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+      } else {
+        // ── Chat-based rerank path ──
+        const out = await runRouterLlm(
+          attempt.providerId,
+          attempt.key,
+          MEMORY_TREE_RERANK_SYSTEM,
+          userBlock,
+          RERANK_MAX_OUT,
+          attemptModel,
+        );
+        console.log(`[memRouter] rerank complete: provider=${attempt.providerId} model=${attemptModel}`);
+        rawText = out.text;
+        usage = out.usage;
+      }
+
+      usedProvider = attempt.providerId;
+      usedModel = attemptModel;
+      usedNative = attemptNative;
+      lastRerankErr = null;
+      rerankMs = Math.round(performance.now() - rerankOverallT0);
+      break;  // success — stop trying fallbacks
+
+    } catch (err) {
+      lastRerankErr = err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[memRouter] rerank FAILED on ${attempt.providerId}/${attemptModel}: ${errMsg.slice(0, 200)}`);
+
+      // Only retry on transient errors (429, 502, 503); for other errors, skip to next provider
+      const isTransient = /\b(429|502|503)\b/.test(errMsg);
+      if (!isTransient && isPrimary) {
+        // Non-transient on primary (400, 401, 404 etc.) — still try fallbacks
+        continue;
+      }
+      if (!isTransient && !isPrimary) {
+        // Non-transient on fallback — skip this provider, try next
+        continue;
+      }
+      // Transient — try next provider
+      continue;
+    }
+  }
+
+  // ── All rerank attempts exhausted ──
+  if (lastRerankErr) {
+    console.error(`[memRouter] ALL rerank attempts failed (${rerankAttempts.length} providers tried)`);
     const det = buildDeterministicSupplement(byId, rows, links, userQuery);
     const analyticsOnRerankFail = buildMemoryTreeRouterAnalytics(providerId, titleScan, null, "", "");
-    if (det.trim()) return { supplement: det, memoryTreeRouterAnalytics: analyticsOnRerankFail };
+    const rerankErrMsg = lastRerankErr instanceof Error ? lastRerankErr.message : String(lastRerankErr);
+    if (det.trim()) return {
+      supplement: det,
+      memoryTreeRouterAnalytics: analyticsOnRerankFail,
+      routerDiag: {
+        path: "rerank-fail",
+        totalNodes: rows.length,
+        lexicalCount: sizeAfterLexAndTitle,
+        semanticNew: semanticScoreById.size,
+        rerankPool: poolForJson.length,
+        selected: 0,
+        rerankModel: rerankModel || (ROUTER_MODEL[providerId] ?? providerId),
+        rerankMode: useNativeRerankApi ? "native" : "chat",
+        pickedProvider: providerId,
+        semanticWinners: [],
+        rationale: `rerank FAILED (all ${rerankAttempts.length} providers): ${rerankErrMsg.slice(0, 300)}`,
+      },
+    };
     throw new Error("Memory tree router failed and deterministic fallback was empty.");
+  }
+
+  // Log if a fallback provider was used
+  if (usedProvider !== providerId) {
+    console.log(`[memRouter] rerank fell back: ${providerId}/${rerankModel} → ${usedProvider}/${usedModel}`);
   }
   const parsed = parseRouteIdsJson(String(rawText ?? ""));
   let validIds = parsed.ids.filter((id) => poolForJson.some((x) => x.id === id)).slice(0, 32);
@@ -1045,7 +1187,12 @@ export async function fetchMemoryTreeSupplementForPrompt(args) {
     semanticNew:   semanticScoreById.size,
     rerankPool:    poolForJson.length,
     selected:      validIds.length,
-    rerankModel:   rerankModel || (ROUTER_MODEL[providerId] ?? providerId),
+    rerankModel:   usedModel || (ROUTER_MODEL[usedProvider] ?? usedProvider),
+    rerankMode:    usedNative ? "native" : "chat",
+    rerankMs,
+    pickedProvider: usedProvider,
+    rerankFallback: usedProvider !== providerId,
+    rerankProvider: usedProvider,
     semanticWinners: semanticWinners.map((id) => {
       const n = byId.get(id);
       if (!n || typeof n !== "object") return id;

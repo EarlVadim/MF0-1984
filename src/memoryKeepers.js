@@ -23,8 +23,6 @@ import {
   rulesKeeperExistingSummaryForExtract,
   mergeRulesKeeperClientPatches,
 } from "./accessRulesKeeperHelpers.js";
-import { getModelApiKeys } from "./modelEnv.js";
-import { getChatAnalysisPriority } from "./chatAnalysisPriority.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -883,13 +881,16 @@ export function keeperIngestCommandsLine(ing) {
   return bits.length ? ` Commands: ${bits.join(", ")}.` : "";
 }
 
-/** Picks the highest-priority provider that has an API key configured. */
-export function pickKeeperProviderWithKey() {
-  const keys = getModelApiKeys();
-  for (const id of getChatAnalysisPriority()) {
-    const key = String(keys[id] ?? "").trim();
-    if (key) return { providerId: id, apiKey: key };
-  }
+/**
+ * Strict provider-slot binding: returns the current provider and its key.
+ * No cross-provider iteration — the keeper uses ONLY the slot the user is on.
+ * @param {string} currentProviderId
+ * @param {string} currentApiKey
+ */
+export function pickKeeperProviderWithKey(currentProviderId, currentApiKey) {
+  const pid = String(currentProviderId ?? "").trim();
+  const k = String(currentApiKey ?? "").trim();
+  if (pid && k) return { providerId: pid, apiKey: k };
   return { providerId: "", apiKey: "" };
 }
 
@@ -940,7 +941,7 @@ export async function runKeepersAfterTurn({
   if (!accessDataDumpMode && introContextActive && modeForSend !== "image" && !hadAssistantError) {
     try {
       log("Keeper (Intro): start — extracting from user text…");
-      const keeperPick = pickKeeperProviderWithKey();
+      const keeperPick = pickKeeperProviderWithKey(providerId, key);
       const keeperProviderId = String(keeperPick.providerId ?? "").trim();
       const keeperApiKey = String(keeperPick.apiKey ?? "").trim();
       if (!keeperProviderId || !keeperApiKey) {
@@ -1143,7 +1144,7 @@ export async function runKeepersAfterTurn({
   ) {
     try {
       log("Keeper (chat): start — interest sketch from user text…");
-      const keeperPick = pickKeeperProviderWithKey();
+      const keeperPick = pickKeeperProviderWithKey(providerId, key);
       const keeperProviderId = String(keeperPick.providerId ?? "").trim();
       const keeperApiKey = String(keeperPick.apiKey ?? "").trim();
       if (!keeperProviderId || !keeperApiKey) {

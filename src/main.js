@@ -412,6 +412,30 @@ function attachModeLogLabel(mode) {
   return "default text";
 }
 
+// ── OpenRouter balance ────────────────────────────────────────────────────────
+
+/**
+ * Fetch the OpenRouter account balance from the server and update the header.
+ * The server proxies GET /api/v1/credits via OPENROUTER_MANAGEMENT_KEY.
+ */
+async function refreshOrBalance() {
+  const el = document.getElementById("header-or-balance");
+  const valEl = document.getElementById("header-or-balance-value");
+  if (!el || !valEl) return;
+  try {
+    const r = await fetch("/api/settings/openrouter-balance");
+    const data = await r.json();
+    if (data.ok && typeof data.balance === "number") {
+      valEl.textContent = `${data.balance} $`;
+      valEl.classList.toggle("header-or-balance-value--low", data.balance < 1);
+      el.hidden = false;
+    }
+    // If not ok (e.g. key not configured), keep the element hidden
+  } catch {
+    /* non-critical — ignore network errors */
+  }
+}
+
 /** First URL or data: from a markdown image `![](...)` */
 function extractMarkdownImageSrc(markdown) {
   const m = String(markdown ?? "").match(/!\[[^\]]*\]\(\s*([^)]+?)\s*\)/);
@@ -7764,7 +7788,11 @@ function initChatComposer() {
             if (_chatSignal.aborted) {
               fullText = buf || "";
             } else {
-              appendActivityLog(`Chat: streaming unavailable, full response (${modelLabel})`);
+              const streamErrMsg = streamErr instanceof Error ? `${streamErr.name}: ${streamErr.message}` : String(streamErr);
+              const streamErrStack = streamErr instanceof Error ? (streamErr.stack || '').split('\n').slice(0, 4).join(' | ') : '';
+              appendActivityLog(`Chat: streaming FAILED for ${providerId}/${modelLabel} — ${streamErrMsg}`);
+              appendActivityLog(`Chat: streaming error stack: ${streamErrStack}`);
+              console.error(`[CHAT] completeChatMessageStreaming FAILED for ${providerId}/${modelLabel}:`, streamErr);
               const { text, usage } = await completeChatMessage(providerId, promptForApi, key, chatOpts);
               fullText = text;
               turnLlmUsage = ensureUsageTotals(usage, JSON.stringify(chatOpts), fullText);
@@ -7898,7 +7926,12 @@ function initChatComposer() {
           appendActivityLog("Chat: generation stopped by user");
           if (pending) pending.remove();
         } else {
+          console.error(`[CHAT] Outer catch — model ${modelLabel}:`, err);
           const msg = err instanceof Error ? err.message : String(err);
+          const errName = err instanceof Error ? err.name : 'Unknown';
+          const errStack = err instanceof Error ? (err.stack || '').split('\n').slice(0, 5).join(' | ') : '';
+          appendActivityLog(`Chat ← error detail: ${errName}: "${msg}" (length=${msg.length})`);
+          appendActivityLog(`Chat ← error stack: ${errStack}`);
           fullText = msg;
           if (pending) {
             renderAssistantError(pending, msg);
@@ -8022,6 +8055,9 @@ function initChatComposer() {
           log: appendActivityLog,
           onGraphUpdate: loadMemoryGraphIntoUi,
         });
+
+        // Refresh OpenRouter balance after Keeper finishes (fire-and-forget)
+        void refreshOrBalance();
       }
     }
   }
@@ -8339,6 +8375,7 @@ function bootApp() {
         await refreshIrPanelLockFromApi();
         await renderThemesSidebar();
         await loadMemoryGraphIntoUi();
+        void refreshOrBalance();
         appendActivityLog("Chat database connected.");
       } else {
         appendActivityLog(

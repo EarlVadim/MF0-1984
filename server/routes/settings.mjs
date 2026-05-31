@@ -26,6 +26,7 @@ function loadOpenRouterModels() {
         inputPer1M:  Number(e.inputPer1M)  || 0,
         outputPer1M: Number(e.outputPer1M) || 0,
         rerankModel: typeof e.rerankModel === "string" ? e.rerankModel.trim() : "",
+        keeperModel: typeof e.keeperModel === "string" ? e.keeperModel.trim() : "",
         modes:       e.modes && typeof e.modes === "object" ? e.modes : {},
       }));
   } catch (e) {
@@ -52,6 +53,7 @@ function sanitizeModelEntry(entry) {
     inputPer1M:  Number(e.inputPer1M)  || 0,
     outputPer1M: Number(e.outputPer1M) || 0,
     rerankModel: typeof e.rerankModel === "string" ? e.rerankModel.trim() : "",
+    keeperModel: typeof e.keeperModel === "string" ? e.keeperModel.trim() : "",
     modes:       e.modes && typeof e.modes === "object" ? e.modes : {},
   };
 }
@@ -117,12 +119,9 @@ router.get("/settings/configured-providers", (_req, res) => {
 
 /**
  * GET /api/settings/openrouter-models
- * Returns OpenRouter model entries from openrouter-models.txt.
- * Supports two line formats (lines starting with # and blank lines are ignored):
- *   Legacy:  model_id
- *   New:     model_id | input_per_1M_USD | output_per_1M_USD
+ * Returns OpenRouter model entries from openrouter-models.json.
  *
- * Response: { ok: true, models: Array<{ id: string, inputPer1M: number, outputPer1M: number }> }
+ * Response: { ok: true, models: Array<{ id, shortName, inputPer1M, outputPer1M, rerankModel, keeperModel, modes }> }
  */
 router.get("/settings/openrouter-models", (_req, res) => {
   try {
@@ -153,7 +152,7 @@ router.put("/settings/openrouter-models", (req, res) => {
 
 /**
  * POST /api/settings/openrouter-models
- * Add a single model entry. Body: { id, shortName, desc, inputPer1M, outputPer1M, rerankModel, modes }
+ * Add a single model entry. Body: { id, shortName, desc, inputPer1M, outputPer1M, rerankModel, keeperModel, modes }
  * Returns 409 if a model with the same id already exists.
  */
 router.post("/settings/openrouter-models", (req, res) => {
@@ -198,4 +197,43 @@ router.delete("/settings/openrouter-models/:id", (req, res) => {
 });
 
 // Update configured-providers to include openrouter
+
+// ── OpenRouter balance ──────────────────────────────────────────────────────
+/** Simple in-memory cache to avoid hammering the OR credits API. */
+let _orBalanceCache = null; // { total_credits, total_usage, balance, ts }
+const OR_BALANCE_TTL_MS = 60_000; // 1 minute
+
+router.get("/settings/openrouter-balance", async (_req, res) => {
+  const mgmtKey = String(process.env.OPENROUTER_MANAGEMENT_KEY ?? "").trim();
+  if (!mgmtKey) {
+    return res.json({ ok: false, error: "OPENROUTER_MANAGEMENT_KEY not configured" });
+  }
+  // Return cached value if fresh
+  if (_orBalanceCache && Date.now() - _orBalanceCache.ts < OR_BALANCE_TTL_MS) {
+    return res.json({ ok: true, ..._orBalanceCache, cached: true });
+  }
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/credits", {
+      headers: { Authorization: `Bearer ${mgmtKey}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      return res.status(502).json({ ok: false, error: `OR ${r.status}: ${text.slice(0, 200)}` });
+    }
+    const body = await r.json();
+    const tc = Number(body?.data?.total_credits) || 0;
+    const tu = Number(body?.data?.total_usage) || 0;
+    const result = { total_credits: tc, total_usage: tu, balance: Math.round((tc - tu) * 100) / 100, ts: Date.now() };
+    _orBalanceCache = result;
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    // Return stale cache on network error, or error
+    if (_orBalanceCache) {
+      return res.json({ ok: true, ..._orBalanceCache, cached: true, stale: true });
+    }
+    res.status(502).json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 export default router;
