@@ -5974,3 +5974,1307 @@ button.btn.settings-ai-save-btn:disabled:focus-visible {
     z-index: 1;
   }
 }
+
+/* ── Maestro Panel ────────────────────────────────────────────────────────── */
+
+/* ── Maestro Modal ─────────────────────────────────────────────────────────── */
+
+.maestro-modal[hidden] {
+  display: none !important;
+}
+
+.maestro-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.maestro-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: hsl(0 0% 0% / 0.42);
+  pointer-events: auto;
+  cursor: default;
+}
+
+.maestro-modal-dialog {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 38rem);
+  max-height: min(88vh, 42rem);
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.12),
+    0 4px 6px -4px rgb(0 0 0 / 0.08);
+}
+
+.dark .maestro-modal-dialog {
+  box-shadow:
+    0 10px 40px rgb(0 0 0 / 0.4),
+    0 4px 12px rgb(0 0 0 / 0.25);
+}
+
+.maestro-modal-head {
+  flex-shrink: 0;
+}
+
+.maestro-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.maestro-panel-root {
+  /* No extra constraints — content fills the modal body */
+}
+
+.maestro-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.maestro-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: hsl(var(--card));
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+}
+
+.maestro-status-section {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.maestro-status-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.maestro-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  min-width: 50px;
+}
+
+.maestro-stat-card--highlight {
+  border-color: hsl(var(--primary) / 0.5);
+}
+
+.maestro-stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  line-height: 1.2;
+}
+
+.maestro-stat-label {
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.maestro-next-due {
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+  padding: 4px 12px;
+  background: hsl(var(--card));
+  border-radius: 6px;
+}
+
+.maestro-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.maestro-tasks-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maestro-tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.maestro-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maestro-task-card {
+  padding: 12px;
+  background: hsl(var(--card));
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  transition: border-color 0.15s;
+}
+
+.maestro-task-card:hover {
+  border-color: hsl(var(--primary) / 0.3);
+}
+
+.maestro-task-header {
+  margin-bottom: 4px;
+}
+
+.maestro-task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.maestro-task-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.maestro-task-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.maestro-task-type {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+
+.maestro-task-cron {
+  font-family: monospace;
+  background: hsl(var(--secondary));
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.maestro-task-once {
+  font-style: italic;
+}
+
+.maestro-task-enabled {
+  font-weight: 600;
+}
+
+.maestro-task-retry {
+  color: hsl(38 92% 50%);
+}
+
+.maestro-task-model {
+  font-family: monospace;
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--secondary));
+  padding: 1px 4px;
+  border-radius: 3px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maestro-task-desc {
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+  margin: 4px 0;
+}
+
+.maestro-task-footer {
+  display: flex;
+  gap: 12px;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 8px;
+}
+
+.maestro-task-next {
+  color: hsl(var(--primary));
+}
+
+.maestro-task-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.maestro-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.maestro-btn:hover {
+  background: hsl(var(--accent));
+  border-color: hsl(var(--primary) / 0.3);
+}
+
+.maestro-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.maestro-btn--primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+
+.maestro-btn--primary:hover {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.maestro-btn--run {
+  border-color: hsl(142 71% 45% / 0.5);
+  color: hsl(142 71% 35%);
+}
+
+.maestro-btn--run:hover {
+  background: hsl(142 71% 45% / 0.1);
+}
+
+.maestro-btn--delete {
+  border-color: hsl(0 84% 60% / 0.3);
+  color: hsl(0 84% 50%);
+}
+
+.maestro-btn--delete:hover {
+  background: hsl(0 84% 60% / 0.1);
+}
+
+.maestro-btn--create {
+  border-color: hsl(var(--primary) / 0.5);
+  color: hsl(var(--primary));
+}
+
+.maestro-btn--scheduler {
+  border-color: hsl(var(--primary) / 0.5);
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
+
+.maestro-btn--refresh {
+  font-size: 0.7rem;
+}
+
+.maestro-status-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.maestro-status--idle {
+  background: hsl(210 40% 96%);
+  color: hsl(210 40% 45%);
+}
+.dark .maestro-status--idle {
+  background: hsl(210 40% 20%);
+  color: hsl(210 40% 75%);
+}
+
+.maestro-status--running {
+  background: hsl(142 71% 90%);
+  color: hsl(142 71% 35%);
+  animation: maestro-pulse 2s ease-in-out infinite;
+}
+.dark .maestro-status--running {
+  background: hsl(142 71% 20%);
+  color: hsl(142 71% 65%);
+}
+
+.maestro-status--error {
+  background: hsl(0 84% 90%);
+  color: hsl(0 84% 45%);
+}
+.dark .maestro-status--error {
+  background: hsl(0 84% 20%);
+  color: hsl(0 84% 70%);
+}
+
+.maestro-status--disabled {
+  background: hsl(0 0% 90%);
+  color: hsl(0 0% 50%);
+}
+.dark .maestro-status--disabled {
+  background: hsl(0 0% 20%);
+  color: hsl(0 0% 55%);
+}
+
+.maestro-status--success {
+  background: hsl(142 71% 90%);
+  color: hsl(142 71% 35%);
+}
+.dark .maestro-status--success {
+  background: hsl(142 71% 20%);
+  color: hsl(142 71% 65%);
+}
+
+@keyframes maestro-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.maestro-empty {
+  padding: 24px;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85rem;
+}
+
+.maestro-error {
+  padding: 16px;
+  color: hsl(0 84% 50%);
+  font-size: 0.85rem;
+  background: hsl(0 84% 95%);
+  border-radius: 8px;
+}
+.dark .maestro-error {
+  background: hsl(0 84% 15%);
+}
+
+/* Maestro create form */
+.maestro-create-form {
+  padding: 16px;
+  background: hsl(var(--card));
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.maestro-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.maestro-form-row--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.maestro-form-row label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.maestro-input {
+  padding: 6px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.maestro-input:focus {
+  outline: 2px solid hsl(var(--primary) / 0.5);
+  outline-offset: -1px;
+}
+
+.maestro-textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.maestro-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Maestro sidebar bubble active state */
+#btn-ir-maestro[aria-expanded="true"] {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+
+/* ── Maestro: Navigation / Back ────────────────────────────────────────────── */
+
+.maestro-nav {
+  margin-bottom: 8px;
+}
+
+.maestro-btn--back {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  border-color: transparent;
+  padding: 4px 6px;
+}
+
+.maestro-btn--back:hover {
+  color: hsl(var(--primary));
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ── Maestro: Detail header ────────────────────────────────────────────────── */
+
+.maestro-detail-header {
+  margin-bottom: 12px;
+}
+
+.maestro-detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.maestro-detail-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.maestro-detail-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 4px;
+}
+
+.maestro-detail-desc {
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+  margin: 4px 0 0;
+}
+
+.maestro-detail-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  margin-top: 4px;
+}
+
+.maestro-detail-model-label {
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+
+.maestro-detail-model-value {
+  font-family: monospace;
+  color: hsl(var(--foreground));
+  background: hsl(var(--secondary));
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.maestro-input--inline {
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.72rem;
+  padding: 3px 8px;
+}
+
+.maestro-btn--small {
+  font-size: 0.65rem;
+  padding: 3px 8px;
+}
+
+.maestro-detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+/* ── Maestro: Run cards ────────────────────────────────────────────────────── */
+
+.maestro-runs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maestro-runs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.maestro-run-card {
+  padding: 10px 12px;
+  background: hsl(var(--card));
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  transition: border-color 0.15s;
+}
+
+.maestro-run-card:hover {
+  border-color: hsl(var(--primary) / 0.3);
+}
+
+.maestro-run-header {
+  margin-bottom: 4px;
+}
+
+.maestro-run-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.maestro-run-time {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+.maestro-run-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.maestro-run-model {
+  font-family: monospace;
+  background: hsl(var(--secondary));
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.maestro-run-summary {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin: 4px 0 6px;
+  line-height: 1.4;
+}
+
+.maestro-run-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.maestro-btn--detail {
+  border-color: hsl(var(--primary) / 0.3);
+  color: hsl(var(--primary));
+  font-size: 0.7rem;
+}
+
+.maestro-btn--detail:hover {
+  background: hsl(var(--primary) / 0.08);
+}
+
+/* ── Maestro: Run detail ───────────────────────────────────────────────────── */
+
+.maestro-run-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.maestro-summary-section {
+  margin-bottom: 16px;
+}
+
+.maestro-summary-text {
+  font-size: 0.82rem;
+  color: hsl(var(--foreground));
+  line-height: 1.5;
+  padding: 12px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Markdown rendering for Maestro summaries and chat */
+.maestro-summary-text--md,
+.maestro-chat-msg-content--md {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.maestro-summary-text--md h1,
+.maestro-summary-text--md h2,
+.maestro-summary-text--md h3,
+.maestro-chat-msg-content--md h1,
+.maestro-chat-msg-content--md h2,
+.maestro-chat-msg-content--md h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 12px 0 6px 0;
+  color: hsl(var(--foreground));
+  line-height: 1.3;
+}
+
+.maestro-summary-text--md h2,
+.maestro-chat-msg-content--md h2 {
+  font-size: 0.9rem;
+  border-bottom: 1px solid hsl(var(--border));
+  padding-bottom: 3px;
+}
+
+.maestro-summary-text--md h3,
+.maestro-chat-msg-content--md h3 {
+  font-size: 0.85rem;
+}
+
+.maestro-summary-text--md p,
+.maestro-chat-msg-content--md p {
+  margin: 4px 0;
+}
+
+.maestro-summary-text--md ul,
+.maestro-summary-text--md ol,
+.maestro-chat-msg-content--md ul,
+.maestro-chat-msg-content--md ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.maestro-summary-text--md li,
+.maestro-chat-msg-content--md li {
+  margin: 2px 0;
+}
+
+.maestro-summary-text--md strong,
+.maestro-chat-msg-content--md strong {
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.maestro-summary-text--md code,
+.maestro-chat-msg-content--md code {
+  font-size: 0.78rem;
+  background: hsl(var(--muted));
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.maestro-summary-text--md pre,
+.maestro-chat-msg-content--md pre {
+  font-size: 0.75rem;
+  background: hsl(var(--muted));
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.maestro-summary-text--md blockquote,
+.maestro-chat-msg-content--md blockquote {
+  border-left: 3px solid hsl(var(--border));
+  margin: 6px 0;
+  padding: 4px 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.maestro-error-section {
+  margin-bottom: 16px;
+}
+
+/* ── Maestro: Tool trace ───────────────────────────────────────────────────── */
+
+.maestro-trace-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maestro-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.maestro-trace-item {
+  padding: 10px 12px;
+  background: hsl(var(--card));
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+}
+
+.maestro-trace-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.maestro-trace-round {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  background: hsl(var(--secondary));
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.maestro-trace-tool {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: hsl(var(--primary));
+  font-family: monospace;
+}
+
+.maestro-trace-details {
+  margin-bottom: 4px;
+}
+
+.maestro-trace-summary {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.maestro-trace-summary:hover {
+  color: hsl(var(--foreground));
+}
+
+.maestro-trace-code {
+  font-size: 0.72rem;
+  font-family: "Sarasa Mono SC", "DejaVu Sans Mono", monospace;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 4px 0;
+  overflow-x: auto;
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: hsl(var(--foreground));
+  line-height: 1.45;
+}
+
+/* ── Maestro Tabs ──────────────────────────────────────────────────────────── */
+
+.maestro-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 8px 0;
+  border-bottom: 1px solid hsl(var(--border));
+  margin-bottom: 12px;
+}
+
+.maestro-tab {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.maestro-tab:hover {
+  background: hsl(var(--muted) / 0.35);
+  color: hsl(var(--foreground));
+}
+
+.maestro-tab--active {
+  color: hsl(var(--primary));
+  font-weight: 600;
+  background: hsl(var(--primary) / 0.1);
+}
+
+.dark .maestro-tab--active {
+  background: hsl(var(--primary) / 0.16);
+}
+
+.maestro-tab-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Maestro Chat ──────────────────────────────────────────────────────────── */
+
+.maestro-chat-model-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 8px;
+  justify-content: center;
+}
+
+.maestro-chat-model-label {
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+.maestro-chat-model-select {
+  font-size: 0.6875rem;
+  max-width: 300px;
+  padding: 2px 4px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.maestro-chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.maestro-chat-empty {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8125rem;
+  text-align: center;
+  padding: 32px 16px;
+  line-height: 1.5;
+}
+
+.maestro-chat-msg {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.maestro-chat-msg--user {
+  align-self: flex-end;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-bottom-right-radius: 3px;
+}
+
+.maestro-chat-msg--assistant {
+  align-self: flex-start;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-bottom-left-radius: 3px;
+}
+
+.maestro-chat-msg--thinking {
+  align-self: flex-start;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+  border-bottom-left-radius: 3px;
+}
+
+.maestro-chat-msg-content {
+  white-space: pre-wrap;
+}
+
+.maestro-chat-msg-error {
+  color: hsl(var(--destructive));
+  font-weight: 500;
+}
+
+.maestro-chat-msg-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.625rem;
+  color: hsl(var(--muted-foreground));
+  opacity: 0.8;
+}
+
+.maestro-chat-msg-time {
+  font-size: 0.625rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 4px;
+  opacity: 0.6;
+}
+
+/* Thinking dots animation */
+.maestro-chat-thinking-dots {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.maestro-chat-thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--muted-foreground));
+  animation: maestro-thinking-bounce 1.2s infinite ease-in-out;
+}
+
+.maestro-chat-thinking-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.maestro-chat-thinking-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes maestro-thinking-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* Chat trace (tool calls in chat) */
+.maestro-chat-trace {
+  margin-top: 6px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 6px;
+}
+
+.maestro-chat-trace-summary {
+  font-size: 0.6875rem;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.maestro-chat-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.maestro-chat-trace-item {
+  border: 1px solid hsl(var(--border));
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.maestro-chat-trace-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  background: hsl(var(--muted) / 0.3);
+  font-size: 0.625rem;
+}
+
+.maestro-chat-trace-round {
+  font-weight: 600;
+  color: hsl(var(--primary));
+}
+
+.maestro-chat-trace-tool {
+  font-family: "Sarasa Mono SC", "DejaVu Sans Mono", monospace;
+  color: hsl(var(--foreground));
+}
+
+.maestro-chat-trace-details {
+  font-size: 0.625rem;
+  padding: 2px 6px;
+}
+
+.maestro-chat-trace-details summary {
+  cursor: pointer;
+  color: hsl(var(--muted-foreground));
+  padding: 2px 0;
+}
+
+.maestro-chat-trace-code {
+  font-size: 0.5625rem;
+  font-family: "Sarasa Mono SC", "DejajaVu Sans Mono", monospace;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 3px;
+  padding: 3px 4px;
+  margin: 2px 0;
+  overflow-x: auto;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+/* Chat input bar */
+.maestro-chat-input-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0 0;
+  border-top: 1px solid hsl(var(--border));
+  margin-top: 8px;
+}
+
+.maestro-chat-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.maestro-chat-send {
+  flex-shrink: 0;
+}
+
+/* ── Maestro: Task Chaining ─────────────────────────────────────────────────── */
+
+.maestro-task-chain {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.maestro-detail-chain {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.maestro-detail-chain-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+}
+
+.maestro-detail-chain-config {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.maestro-select {
+  min-width: 100px;
+  max-width: 320px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maestro-select:focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -1px;
+}
+
+.maestro-chain-vis {
+  margin-top: 4px;
+}
+
+.maestro-chain-none {
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.maestro-chain-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  background: hsl(var(--secondary));
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+}
+
+.maestro-chain-node {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maestro-chain-node--current {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 0.3);
+}
+
+.maestro-chain-node--parent {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+}
+
+.maestro-chain-node--child {
+  background: hsl(142 71% 45% / 0.1);
+  color: hsl(142 71% 35%);
+  border: 1px solid hsl(142 71% 45% / 0.3);
+}
+
+.dark .maestro-chain-node--current {
+  background: hsl(var(--primary) / 0.2);
+}
+
+.dark .maestro-chain-node--child {
+  background: hsl(142 71% 45% / 0.15);
+  color: hsl(142 71% 55%);
+}
+
+.maestro-chain-arrow {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ── Chain Graph (global DAG view) ───────────────────────────────────────── */
+
+.maestro-chain-summary {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.maestro-chain-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.maestro-chain-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.maestro-chain-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.maestro-chain-legend-hint {
+  margin-left: auto;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.maestro-chain-graph-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.maestro-chain-graph-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.maestro-chain-graph-node:hover rect {
+  filter: brightness(0.92);
+  stroke-width: 2.5;
+}
+
+.dark .maestro-chain-graph-node:hover rect {
+  filter: brightness(1.12);
+}
+
+/* Dark theme adjustments for SVG nodes */
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node rect[fill="#f1f5f9"] {
+  fill: hsl(217.2 32.6% 17.5%);
+  stroke: hsl(217.2 32.6% 30%);
+}
+
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node rect[fill="#dbeafe"] {
+  fill: hsl(217.2 60% 25%);
+  stroke: hsl(217.2 91.2% 59.8%);
+}
+
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node rect[fill="#dcfce7"] {
+  fill: hsl(142 71% 20%);
+  stroke: hsl(142 71% 55%);
+}
+
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node rect[fill="#fee2e2"] {
+  fill: hsl(0 62.8% 25%);
+  stroke: hsl(0 62.8% 55%);
+}
+
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node rect[fill="#f3f4f6"] {
+  fill: hsl(217.2 32.6% 15%);
+  stroke: hsl(217.2 32.6% 25%);
+}
+
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node text[fill="#475569"],
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node text[fill="#1d4ed8"],
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node text[fill="#166534"],
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node text[fill="#991b1b"],
+.dark .maestro-chain-graph-svg .maestro-chain-graph-node text[fill="#6b7280"] {
+  fill: hsl(210 40% 90%) !important;
+}

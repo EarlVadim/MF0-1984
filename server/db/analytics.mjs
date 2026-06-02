@@ -18,6 +18,7 @@ export const AUX_LLM_USAGE_KINDS = new Set([
   "help_chat_turn",
   "rules_keeper_extract",
   "access_keeper2_extract",
+  "maestro_task",
 ]);
 
 export function estimateTokensFromText(text) {
@@ -157,6 +158,7 @@ function analyticsProcessLabelForAuxKind(requestKind) {
     help_chat_turn: "Help chat turn",
     rules_keeper_extract: "Keeper: Rules extract",
     access_keeper2_extract: "Keeper: Access extract",
+    maestro_task: "Maestro: scheduled task",
   };
   return labels[k] ?? k;
 }

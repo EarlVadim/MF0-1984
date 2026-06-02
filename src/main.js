@@ -63,6 +63,7 @@ import {
   refreshIrPanelLockFromApi,
 } from "./irPanelPinLock.js";
 import { closeAnalyticsView, initAnalyticsDashboard, refreshAnalyticsViewIfOpen } from "./analyticsDashboard.js";
+import { initMaestroPanel, refreshMaestroViewIfOpen } from "./maestroPanel.js";
 import {
   apiHealth,
   bootstrapThemeAndDialog,
@@ -8357,6 +8358,9 @@ function bootApp() {
       closeIrChatPanel();
       closeHelpChatFullyForNavigation();
     },
+  });
+  initMaestroPanel({
+    appendActivityLog,
   });
   initNewDialogueButton();
   initAttachMenu();

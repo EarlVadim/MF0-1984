@@ -2,13 +2,13 @@
 
 **MF0-1984** is a **local-first** single-page app for multi-provider LLM chat, structured workflows (Intro / Access / Rules / Help), a **Memory tree** (3D graph over SQLite), **themes** and dialogs, **analytics**, **favorites**, and **project profile** backup/restore (`.mf` bundles).
 
-This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload** and **extended tool set** (bash, find, move, copy, mkdir), **login/password authentication**, **HTTPS**, **semantic memory search**, **per-model analytics**, a **stop-generation button**, **drag-and-drop model reorder** in the OR editor, a **New Chat dropdown** (new dialog in current theme / new theme), an **OpenRouter balance display** in the header, **native rerank API support** (cohere/rerank-v3.5), and **rerank fallback across providers** (automatic provider switching when the active slot's rerank fails).
+This fork extends the original with **Ollama** and **OpenRouter** support, per-dialog model memory, a **LocalFS** file-system tool layer with **file upload** and **extended tool set** (bash, find, move, copy, mkdir), **login/password authentication**, **HTTPS**, **semantic memory search**, **per-model analytics**, a **stop-generation button**, **drag-and-drop model reorder** in the OR editor, a **New Chat dropdown** (new dialog in current theme / new theme), an **OpenRouter balance display** in the header, **native rerank API support** (cohere/rerank-v3.5), **rerank fallback across providers** (automatic provider switching when the active slot's rerank fails), and **Maestro** — a full orchestrator agent on the OR-3 slot with 24 tools, scheduled task execution, and structured periodic system check reports.
 
 | | |
 |---|---|
 | **UI dev server** | Vite — default port **1984** (`vite.config.js`) |
 | **Local API** | Node + `better-sqlite3` — default port **35184** (`API_PORT`) |
-| **Version** | **1.11.05** |
+| **Version** | **2.0.1** |
 | **Upstream** | [PavelMuntyan/MF0-1984](https://github.com/PavelMuntyan/MF0-1984) |
 
 For architecture, data model, and operations see **[HANDOFF.md](./HANDOFF.md)**.
@@ -459,6 +459,49 @@ Visibility preference is stored in `localStorage` under `mf0.badge.visibility`.
 
 ---
 
+## Maestro — orchestrator agent (OR-3 slot)
+
+**Maestro** is an autonomous orchestrator running on the **OR-3 slot** with 24 server-side tools. It can manage tasks, monitor system health, coordinate other LLM slots, and make autonomous decisions.
+
+### How it works
+
+When a message is sent via OR-3, the server intercepts it and enriches the request with the Maestro system prompt, real-time agent context (memory graph, tasks, providers, dialogs, analytics), and 24 tool definitions. The model decides whether to use tools — no manual configuration needed.
+
+### Scheduled tasks
+
+Tasks are created via the Maestro panel in the UI or through tool calls. Each task has a cron schedule, model assignment, and chain conditions. The scheduler checks every 30 seconds for due tasks and executes them with a multi-round tool-calling loop (up to 10 rounds).
+
+### Periodic check reports
+
+The built-in "Periodic check" task produces a structured Russian-language report with Markdown tables every 5 minutes (configurable):
+
+| Section | Format |
+|---|---|
+| Состояние системы | Table: Uptime, Memory, Node.js, DB, Scheduler |
+| Планировщик задач | Table: Task name, Status, Cron, Run count |
+| Граф памяти | Bullet list: nodes, categories, changes |
+| Токены и аналитика | Table: Prompt/Completion tokens, Aux calls, Trend |
+| Диалоги | Bullet list: dialog count, recent activity |
+| Провайдеры LLM | Table: Slot, Status |
+| Файловая система | Bullet list: sandbox, reports, disk |
+| Вывод | Overall status emoji (🟢/🟡/🔴) + summary |
+
+Reports are persisted to `AI-FS/reports/` for historical comparison and displayed in the Maestro chat.
+
+### Maestro environment variables
+
+| Variable | Description |
+|---|---|
+| `MAESTRO_MODEL` | Fallback model when no model_id set on task |
+| `MAESTRO_FALLBACK_MODELS` | Comma-separated fallback models |
+| `MAESTRO_MAX_PARALLEL` | Max parallel tasks per tick (default 3) |
+| `MAESTRO_PROVIDER_EXCLUDE` | OpenRouter provider slugs to ignore |
+| `MAESTRO_PROVIDER_SORT` | Sort by `throughput`, `latency`, or `price` |
+| `MAESTRO_PROVIDER_MIN_THROUGHPUT` | Preferred min throughput (tok/s) |
+| `MAESTRO_PROVIDER_MAX_LATENCY` | Preferred max latency (seconds) |
+
+---
+
 ## Differences from upstream
 
 | Feature | Upstream | This fork |
@@ -482,6 +525,7 @@ Visibility preference is stored in `localStorage` under `mf0.badge.visibility`.
 | New chat | Single button (new theme only) | Dropdown: "New dialog in current theme" (default) / "New theme" |
 | User message background | Same opacity as assistant | Increased contrast (+15% opacity) for better visual distinction |
 | OR account balance | — | Header display of `total_credits − total_usage` via Management Key; refreshed after every Keeper turn |
+| **Maestro orchestrator** | — | Autonomous agent on OR-3 slot: 24 tools, scheduled tasks, periodic system check reports with Markdown tables, model fallback, quality gate |
 | Authentication | — | Login/password, session cookies, admin/user roles |
 | HTTPS | — | Standalone TLS proxy, auto self-signed cert for dev |
 

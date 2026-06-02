@@ -38,6 +38,9 @@ const migration011 = path.join(root, "db", "migrations", "011_analytics_aux_llm_
 const migration012 = path.join(root, "db", "migrations", "012_memory_graph_embeddings.sql");
 const migration013 = path.join(root, "db", "migrations", "013_users.sql");
 const migration014 = path.join(root, "db", "migrations", "014_dialog_or_models.sql");
+const migration015 = path.join(root, "db", "migrations", "015_maestro.sql");
+const migration016 = path.join(root, "db", "migrations", "016_maestro_enhancements.sql");
+const migration017 = path.join(root, "db", "migrations", "017_maestro_model.sql");
 
 function estimateTokensFromText(text) {
   const s = String(text ?? "").trim();
@@ -391,6 +394,87 @@ export function createDatabase(filePath) {
     try { database.exec(fs.readFileSync(migration014, "utf8")); } catch (e) {
       // Column may already exist if DB was manually altered
       if (!String(e?.message).includes("duplicate column")) throw e;
+    }
+  }
+  // 015: Maestro task scheduler tables
+  if (fs.existsSync(migration015)) {
+    database.exec(fs.readFileSync(migration015, "utf8"));
+  }
+  // 016: Maestro enhancements — tool_trace, conversation_history, max_tool_rounds
+  if (fs.existsSync(migration016)) {
+    try { database.exec(fs.readFileSync(migration016, "utf8")); } catch (e) {
+      if (!String(e?.message).includes("duplicate column")) throw e;
+    }
+  }
+  // 017: Maestro — model_id in runs, default_model in tasks
+  if (fs.existsSync(migration017)) {
+    try { database.exec(fs.readFileSync(migration017, "utf8")); } catch (e) {
+      if (!String(e?.message).includes("duplicate column")) throw e;
+    }
+  }
+  // 017b: Task chaining — chain_to + chain_condition (consolidated from old 017_maestro_task_chain.sql)
+  {
+    const p = path.join(root, "db", "migrations", "017_maestro_task_chain.sql");
+    if (fs.existsSync(p)) {
+      try { database.exec(fs.readFileSync(p, "utf8")); } catch (e) {
+        if (!String(e?.message).includes("duplicate column")) throw e;
+      }
+    }
+  }
+  // 018: Maestro self-management — retry policy, source_task_id
+  {
+    const p = path.join(root, "db", "migrations", "018_maestro_self_management.sql");
+    if (fs.existsSync(p)) {
+      try { database.exec(fs.readFileSync(p, "utf8")); } catch (e) {
+        if (!String(e?.message).includes("duplicate column")) throw e;
+      }
+    }
+  }
+  // 019: Maestro model backfill (no-op SQL, documentation only)
+  {
+    const p = path.join(root, "db", "migrations", "019_maestro_model_backfill.sql");
+    if (fs.existsSync(p)) {
+      try { database.exec(fs.readFileSync(p, "utf8")); } catch (e) {
+        // no-op migration, ignore any errors
+      }
+    }
+  }
+  // 020: Maestro default_model backfill (no-op SQL, documentation only)
+  {
+    const p = path.join(root, "db", "migrations", "020_maestro_default_model_backfill.sql");
+    if (fs.existsSync(p)) {
+      try { database.exec(fs.readFileSync(p, "utf8")); } catch (e) {
+        // no-op migration, ignore any errors
+      }
+    }
+  }
+  // 021: Task chain (consolidated into 017, now a no-op)
+  {
+    const p = path.join(root, "db", "migrations", "021_maestro_task_chain.sql");
+    if (fs.existsSync(p)) {
+      try { database.exec(fs.readFileSync(p, "utf8")); } catch (e) {
+        if (!String(e?.message).includes("duplicate column")) throw e;
+      }
+    }
+  }
+  // 022: Backfill responding_model_id for Maestro conversation turns
+  {
+    const p = path.join(root, "db", "migrations", "022_maestro_responding_model_backfill.sql");
+    if (fs.existsSync(p)) {
+      try { database.exec(fs.readFileSync(p, "utf8")); } catch (e) {
+        // May fail if maestro_runs or conversation_turns data is inconsistent; non-critical
+        console.warn("[mf-lab-api] Migration 022 warning:", e?.message || e);
+      }
+    }
+  }
+  // 023: Add index on memory_graph_nodes.label for faster LIKE queries
+  {
+    const migration023 = path.join(root, "db", "migrations", "023_memory_graph_node_label_index.sql");
+    if (fs.existsSync(migration023)) {
+      try { database.exec(fs.readFileSync(migration023, "utf8")); } catch (e) {
+        // Index may already exist
+        if (!String(e?.message).includes("already exists")) throw e;
+      }
     }
   }
   return database;

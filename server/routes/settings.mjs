@@ -109,10 +109,10 @@ router.get("/settings/configured-providers", (_req, res) => {
     ollama:          true,
     "or-1":   Boolean(String(process.env.OPENROUTER_API_KEY    ?? "").trim()),
     "or-2":   Boolean(String(process.env.OPENROUTER_API_KEY    ?? "").trim()),
-        "or-3":   Boolean(String(process.env.OPENROUTER_API_KEY    ?? "").trim()),
+    "or-3":   Boolean(String(process.env.OPENROUTER_API_KEY    ?? "").trim()),
     "gemini-flash":  Boolean(String(process.env.GEMINI_API_KEY        ?? "").trim()),
     anthropic:       Boolean(String(process.env.ANTHROPIC_API_KEY     ?? "").trim()),
-    
+    maestro:         Boolean(String(process.env.OPENROUTER_API_KEY    ?? "").trim()),
   };
   res.json({ ok: true, configured });
 });

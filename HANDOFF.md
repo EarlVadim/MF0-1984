@@ -4,6 +4,129 @@ This document is a **single-source orientation** for engineers taking over the r
 
 ---
 
+## Release notes (2.0.1)
+
+### Maestro orchestrator — OR-3 slot integration (Variant 1: LLM-native)
+
+The Maestro orchestrator agent is now fully integrated on the **OR-3 slot** with 24 server-side tools, automatic tool activation, and a structured periodic check report system. This is a major feature addition spanning steps 1–12 of the Maestro implementation plan.
+
+#### OR-3 slot intercept with Maestro prompt + tools
+
+When a user sends a message via the OR-3 slot, the server intercepts the request in `handleMaestroOr3Chat()` and enriches it with:
+
+- **Maestro system prompt** (`MAESTRO_DIALOG_SYSTEM_PROMPT`) — orchestrator identity, output rules, task creation rules, slot awareness, timezone handling
+- **Real-time agent context** — 9-section context injected via `buildMaestroContextAsync()`: System, Memory Graph, Maestro Tasks, LLM Providers, Dialogs, Rules, File System, Analytics, Tool Availability
+- **24 Maestro tools** — `MAESTRO_TOOL_DEFINITIONS` always sent with OR-3 requests; the model decides whether to use them
+
+This means any model on OR-3 automatically gets Maestro capabilities — no manual tool selection needed.
+
+#### Tool-calling loop with model fallback
+
+The scheduler executes tasks via `_executeWithTools()` — a multi-round tool-calling loop (up to 10 rounds by default). If the primary model fails, the system falls back through `MAESTRO_FALLBACK_MODELS`. Each round, the LLM can call tools, get results, and continue until it produces a final text response. On the final round, tools are removed to force a summary.
+
+**Quality gate** (`_isPoorQualityOutput()`): after the LLM responds, the output is checked for:
+
+- Too short (<200 chars general, <500 chars for periodic checks)
+- Raw shell commands or bare file paths
+- No Markdown formatting
+- JSON-like content (>70% key=value lines)
+- **For periodic checks**: must have ≥3 `##`/`###` headers, must contain Cyrillic text (Russian), must contain at least 1 Markdown table, must be ≥500 chars
+
+If quality gate fails and tool trace exists, a forced summary call is made (without tools) to produce a clean report.
+
+#### Scheduled task execution
+
+The Maestro scheduler (`maestroScheduler.mjs`) runs a 30-second tick loop. Tasks with `schedule_enabled = 1`, `status = 'idle'`, and `next_run_at <= NOW()` are picked up and executed. Tasks connected via `chain_to` are partitioned into independent groups and executed with proper concurrency control (up to `MAX_PARALLEL_TASKS` at a time).
+
+**Key fix**: `recalcNextRunAt()` is now called after both `createTask()` and `updateTask()`, ensuring `next_run_at` is always set for scheduled tasks — previously it was NULL, causing the scheduler to never pick up new tasks.
+
+#### Periodic check reports — Russian, with Markdown tables
+
+Periodic check tasks (type `keeper` or title matching `/check|monitor|verify|проверк|монитор/`) now produce structured Russian-language reports with Markdown tables, following a strict template:
+
+```
+## 📋 Периодический отчёт — Maestro MF0-1984
+
+### 1. Состояние системы
+| Параметр | Значение |
+|---|---|
+| Uptime | ... |
+| Память (RSS) | ... MB |
+...
+
+### 6. Провайдеры LLM
+| Слот | Статус |
+|---|---|
+| or-3 (Maestro) | ✅ активен |
+...
+
+### 🟢 Вывод
+```
+
+Reports are persisted to files via `save_report` (for historical comparison) **and** output as the model's final text response (for chat display). The `read_last_report` tool retrieves the previous report for delta comparison.
+
+**Forced summary**: if quality gate triggers for a periodic check, the forced summary call uses a Russian-language prompt requiring tables.
+
+#### Key prompt rules
+
+| Rule | Description |
+|---|---|
+| #1 | Final text response MUST be the FULL structured Markdown report — not just a summary |
+| #8 | MUST use Markdown TABLES for sections 1, 2, 4, 6 — bullet lists only for sections 3, 5, 7 |
+| #9 | Structure: Состояние системы, Планировщик задач, Граф памяти, Токены и аналитика, Диалоги, Провайдеры LLM, Файловая система, Вывод |
+| #11 | Periodic checks ALWAYS in Russian, regardless of task title language |
+
+#### Bug fixes
+
+| Bug | Root cause | Fix |
+|---|---|---|
+| `NOT NULL constraint failed: maestro_tasks.chain_condition` | `createTask()` passed `null` for NOT NULL column | Default changed to `'success'`; migration 017 DEFAULT fixed |
+| OR-3 used slot OR-1 for model availability check | `send_to_slot` blocked OR-3, causing recursive fallback to OR-1 | OR-3 now allowed via direct OpenRouter call (no recursion) |
+| Two tasks created instead of one | LLM called `create_task` twice to "fix" schedule | Added `scheduleEnabled` param; TASK CREATION RULES in prompts |
+| Tasks not auto-launching after creation | `next_run_at` was NULL after `createTask()` | Added `recalcNextRunAt()` calls in `_toolCreateTask` and `_toolUpdateTask` |
+| Model inventing names (`nvidia/ntron-nano`) | LLM guessed short names instead of full IDs | Added Known Models table in `buildProviderContext()` |
+| Wrong model shown in chat | No model selector for OR-3 | Added model selector dropdown with `localStorage` persistence |
+| Model selector reset after send | Re-render before `localStorage` save | Save to `localStorage` BEFORE re-render |
+| Report in English instead of Russian | Rule #11 said "same language as task title" | Changed to "ALWAYS Russian for periodic checks" |
+| Report only saved to file, not shown in chat | Model used `save_report` as the output, not final text | Added duplication rule: save_report for archive + final text for chat |
+| Report output twice in chat | Duplication instruction misunderstood | Clarified: "write only ONCE in your text" |
+| No tables in report | Prompt didn't require tables, just bullet lists | Rule #8 now requires tables; user message includes full table example; quality gate checks for `\|---\|` pattern |
+| Login page after deploying fix | Missing comma in JS array literal (syntax error crashed server) | All patches now verified with `node -c` before packaging |
+
+#### Files changed
+
+| File | Change |
+|------|--------|
+| `server/services/maestroScheduler.mjs` | Full Maestro scheduler with tool-calling loop, model fallback, quality gate, Russian prompt with table template, `recalcNextRunAt()` calls |
+| `server/services/maestroTools.mjs` | 24 tool definitions, `_toolCreateTask` async with `recalcNextRunAt`, `_toolUpdateTask` async, `scheduleEnabled` param, OR-3 allowed in `send_to_slot` |
+| `server/services/maestroContext.mjs` | Timezone info in `buildSystemContext()`, Known Models table in `buildProviderContext()` |
+| `server/services/maestro.mjs` | `createTask()` default `scheduleEnabled=1` when `scheduleCron` set, `chainCondition` default `'success'` |
+| `server/routes/llm.mjs` | `handleMaestroOr3Chat()` — OR-3 intercept with Maestro prompt + tools, SLOT AWARENESS + TASK CREATION RULES in `MAESTRO_DIALOG_SYSTEM_PROMPT` |
+| `src/maestroPanel.js` | Model selector dropdown with `localStorage` persistence |
+| `src/llmGateway.js` | Frontend LLM gateway adjustments |
+| `src/theme.css` | Styles for Maestro model selector |
+| `server/db/migrations.mjs` | Connected migrations 018–022 |
+| `db/migrations/017_maestro_task_chain.sql` | Fixed `DEFAULT 'success'` for `chain_condition` |
+| `db/migrations/018_maestro_self_management.sql` | Maestro self-management columns |
+| `db/migrations/019_maestro_model_backfill.sql` | Model backfill migration |
+| `db/migrations/020_maestro_default_model_backfill.sql` | Default model backfill |
+| `db/migrations/021_maestro_task_chain.sql` | Chain fix (no-op after 017 fix) |
+| `db/migrations/022_maestro_responding_model_backfill.sql` | Responding model backfill |
+
+#### New environment variables
+
+| Variable | Description |
+|---|---|
+| `MAESTRO_MODEL` | Fallback model for Maestro tasks when no model_id set |
+| `MAESTRO_FALLBACK_MODELS` | Comma-separated fallback models (e.g. `deepseek/deepseek-v4-flash,nvidia/nemotron-nano-9b-v2`) |
+| `MAESTRO_MAX_PARALLEL` | Max parallel tasks per tick (default 3) |
+| `MAESTRO_PROVIDER_EXCLUDE` | Comma-separated OpenRouter provider slugs to ignore |
+| `MAESTRO_PROVIDER_SORT` | Sort providers by `throughput`, `latency`, or `price` |
+| `MAESTRO_PROVIDER_MIN_THROUGHPUT` | Preferred min throughput (tok/s) |
+| `MAESTRO_PROVIDER_MAX_LATENCY` | Preferred max latency (seconds) |
+
+---
+
 ## Release notes (1.11.05)
 
 ### LLM proxy: filter browser `accept-encoding` header

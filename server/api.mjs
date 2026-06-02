@@ -23,7 +23,10 @@ import themesRouter from "./routes/themes.mjs";
 import llmRouter     from "./routes/llm.mjs";
 import localfsRouter  from "./routes/localfs.mjs";
 import authRouter     from "./routes/auth.mjs";
+import maestroRouter   from "./routes/maestro.mjs";
 import { attachSession } from "./middleware/auth.mjs";
+import { startScheduler } from "./services/maestroScheduler.mjs";
+import { setSchedulerRunning } from "./services/maestro.mjs";
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -93,6 +96,7 @@ app.use("/api", analyticsRouter);
 app.use("/api", themesRouter);
 app.use("/api", llmRouter);
 app.use("/api", localfsRouter);
+app.use("/api", maestroRouter);
 
 app.use(notFound);
 app.use(errorHandler);
@@ -100,4 +104,15 @@ app.use(errorHandler);
 app.listen(PORT, "127.0.0.1", () => {
   console.log(`MF0-1984 API http://127.0.0.1:${PORT}/ (SQLite: ${dbPath})`);
   if (apiPrefix) console.log(`[mf-lab-api] API_PATH_PREFIX=${process.env.API_PATH_PREFIX}`);
+
+  // Auto-start Maestro scheduler unless explicitly disabled
+  if (String(process.env.MAESTRO_SCHEDULER_DISABLED ?? "").trim() !== "1") {
+    try {
+      startScheduler();
+      setSchedulerRunning(true);
+      console.log("[mf-lab-api] Maestro scheduler auto-started");
+    } catch (e) {
+      console.warn("[mf-lab-api] Maestro scheduler failed to start:", e?.message);
+    }
+  }
 });

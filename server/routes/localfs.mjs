@@ -34,6 +34,19 @@ const router = Router();
 const ENABLED = String(process.env.LOCALFS_ENABLED ?? "").trim().toLowerCase() === "true";
 const ROOT    = String(process.env.LOCALFS_ROOT    ?? "").trim();
 
+// Auto-create ROOT directory if it doesn't exist
+if (ENABLED && ROOT) {
+  const rootAbs = resolve(ROOT);
+  if (!existsSync(rootAbs)) {
+    try {
+      mkdirSync(rootAbs, { recursive: true });
+      console.log(`[localfs] Created sandbox root: ${rootAbs}`);
+    } catch (e) {
+      console.warn(`[localfs] Failed to create sandbox root ${rootAbs}:`, e?.message);
+    }
+  }
+}
+
 /** Max file size for read (4 MB) */
 const MAX_READ_BYTES = 4 * 1024 * 1024;
 /** Max write size (4 MB) */
@@ -494,7 +507,7 @@ router.post("/localfs/bash", (req, res) => {
       : s;
 
     res.json({
-      ok: exitCode === 0,
+      ok: true,  // API call succeeded (command may have non-zero exit, but the API is fine)
       exitCode,
       stdout: truncate(stdout),
       stderr: truncate(stderr),

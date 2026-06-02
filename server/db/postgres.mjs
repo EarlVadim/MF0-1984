@@ -247,6 +247,86 @@ export async function runPostgresMigrations(pool) {
   await q(pool, `CREATE INDEX IF NOT EXISTS idx_analytics_aux_llm_usage_provider ON analytics_aux_llm_usage (provider_id)`);
   await q(pool, `CREATE INDEX IF NOT EXISTS idx_analytics_aux_llm_usage_turn     ON analytics_aux_llm_usage (conversation_turn_id)`);
   await q(pool, `CREATE INDEX IF NOT EXISTS idx_analytics_aux_llm_usage_dialog   ON analytics_aux_llm_usage (dialog_id)`);
+
+  // ── Maestro task scheduler (migration 015) ──
+  await q(pool, `
+    CREATE TABLE IF NOT EXISTS maestro_tasks (
+      id                TEXT PRIMARY KEY NOT NULL,
+      title             TEXT NOT NULL,
+      description       TEXT,
+      task_type         TEXT NOT NULL DEFAULT 'chat',
+      provider_id       TEXT NOT NULL DEFAULT 'or-3',
+      model_id          TEXT,
+      schedule_cron     TEXT,
+      schedule_enabled  INTEGER NOT NULL DEFAULT 0,
+      system_prompt     TEXT,
+      context_json      TEXT,
+      max_context_nodes INTEGER NOT NULL DEFAULT 20,
+      last_run_at       TEXT,
+      next_run_at       TEXT,
+      run_count         INTEGER NOT NULL DEFAULT 0,
+      status            TEXT NOT NULL DEFAULT 'idle',
+      last_error        TEXT,
+      created_at        TEXT NOT NULL DEFAULT (${ISO_NOW}),
+      updated_at        TEXT NOT NULL DEFAULT (${ISO_NOW})
+    )
+  `);
+  await q(pool, `CREATE INDEX IF NOT EXISTS idx_maestro_tasks_status ON maestro_tasks (status)`);
+  await q(pool, `CREATE INDEX IF NOT EXISTS idx_maestro_tasks_next_run ON maestro_tasks (next_run_at) WHERE status = 'idle' AND schedule_enabled = 1`);
+
+  await q(pool, `
+    CREATE TABLE IF NOT EXISTS maestro_runs (
+      id                 TEXT PRIMARY KEY NOT NULL,
+      task_id            TEXT NOT NULL REFERENCES maestro_tasks (id) ON DELETE CASCADE,
+      started_at         TEXT NOT NULL,
+      finished_at        TEXT,
+      status             TEXT NOT NULL DEFAULT 'running',
+      result_summary     TEXT,
+      prompt_tokens      INTEGER NOT NULL DEFAULT 0,
+      completion_tokens  INTEGER NOT NULL DEFAULT 0,
+      total_tokens       INTEGER NOT NULL DEFAULT 0,
+      error_message      TEXT,
+      created_at         TEXT NOT NULL DEFAULT (${ISO_NOW})
+    )
+  `);
+  await q(pool, `CREATE INDEX IF NOT EXISTS idx_maestro_runs_task ON maestro_runs (task_id)`);
+  await q(pool, `CREATE INDEX IF NOT EXISTS idx_maestro_runs_status ON maestro_runs (status)`);
+  await q(pool, `CREATE INDEX IF NOT EXISTS idx_maestro_runs_started ON maestro_runs (started_at)`);
+
+  // ── Maestro enhancements (migration 016) ──
+  await addColumnIfMissing(pool, "maestro_runs", "tool_trace", "TEXT");
+  await addColumnIfMissing(pool, "maestro_tasks", "conversation_history", "TEXT");
+  await addColumnIfMissing(pool, "maestro_tasks", "max_tool_rounds", "INTEGER DEFAULT 10");
+
+  // ── Maestro model support (migration 017) ──
+  await addColumnIfMissing(pool, "maestro_runs", "model_id", "TEXT");
+  await addColumnIfMissing(pool, "maestro_tasks", "default_model", "TEXT");
+
+  // users + sessions (migration 013)
+  await q(pool, `
+    CREATE TABLE IF NOT EXISTS users (
+      id            TEXT PRIMARY KEY NOT NULL,
+      username      TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role          TEXT NOT NULL DEFAULT 'user',
+      created_at    TEXT NOT NULL DEFAULT (${ISO_NOW}),
+      last_login    TEXT
+    )
+  `);
+  await q(pool, `
+    CREATE TABLE IF NOT EXISTS sessions (
+      token      TEXT PRIMARY KEY NOT NULL,
+      user_id    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (${ISO_NOW}),
+      expires_at TEXT NOT NULL
+    )
+  `);
+
+  // dialog or_models_json column (migration 014)
+  await addColumnIfMissing(pool, 'dialogs', 'or_models_json', 'TEXT');
+
+  // conversation_turns responding_model_id (added alongside 010)
+  await addColumnIfMissing(pool, 'conversation_turns', 'responding_model_id', 'TEXT');
 }
 
 /**

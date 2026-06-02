@@ -381,6 +381,51 @@
         </div>
       </div>
 
+      <!-- Maestro Modal -->
+      <div
+        id="maestro-modal"
+        class="maestro-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="maestro-modal-title"
+        hidden
+      >
+        <div class="maestro-modal-overlay" aria-hidden="true"></div>
+        <div class="maestro-modal-dialog">
+          <div class="maestro-modal-head activity-log-head">
+            <span class="activity-log-title" id="maestro-modal-title">Maestro</span>
+            <div class="activity-log-actions">
+              <button
+                type="button"
+                class="btn-ghost btn-ghost-icon"
+                id="maestro-modal-close"
+                aria-label="Close Maestro"
+              >
+                <svg
+                  class="btn-icon-svg"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="maestro-modal-body">
+            <div id="maestro-panel-root" class="maestro-panel-root"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- OpenRouter Models Editor Modal -->
       <div
         id="or-models-modal"
@@ -932,6 +977,16 @@
                       </svg>
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    class="sidebar-ir-bubble"
+                    id="btn-ir-maestro"
+                    aria-controls="maestro-modal"
+                    aria-expanded="false"
+                    aria-label="Maestro: orchestrator and scheduled tasks"
+                  >
+                    <span class="sidebar-ir-bubble-label">Maestro</span>
+                  </button>
                 </div>
               </div>
 
@@ -1098,6 +1153,7 @@
                 </header>
                 <div class="chat-ir-body" aria-label="Help configuration"></div>
               </div>
+
               <div
                 class="memory-tree-graph-host"
                 id="memory-tree-graph-host"

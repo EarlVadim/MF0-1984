@@ -1,6 +1,6 @@
 {
   "name": "mf-lab->EarlVadim",
-  "version": "1.11.05",
+  "version": "2.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "db:init": "node scripts/init-db.mjs",
-	"https": "node --env-file=.env server/https-proxy.mjs",
+    "https": "node --env-file=.env server/https-proxy.mjs",
     "dev:https": "concurrently -k -n api,vite,https -c cyan,magenta,green \"npm run api\" \"vite\" \"npm run https\""
   },
   "devDependencies": {
@@ -30,6 +30,7 @@
     "3d-force-graph": "^1.80.0",
     "7zip-bin": "^5.2.0",
     "better-sqlite3": "^11.8.1",
+    "croner": "^10.0.1",
     "dompurify": "^3.3.3",
     "express": "^5.2.1",
     "highlight.js": "^11.11.1",

@@ -1,0 +1,1259 @@
+/**
+ * Maestro Scheduler — tick engine + LLM execution with context + tool calling.
+ *
+ * Periodically checks for due tasks and executes them via the LLM proxy.
+ * Injects real agent context (memory, tasks, providers, dialogs, rules, files).
+ * Supports multi-turn tool-calling loop: the LLM can call tools, get results,
+ * and continue until it produces a final text response.
+ *
+ * Public API:
+ *   startScheduler()          — begin the tick loop
+ *   stopScheduler()           — stop the tick loop
+ *   executeTask(taskId)       — run a single task immediately (used by manual trigger too)
+ *   recalcNextRunAt(taskId)   — compute next_run_at from cron expression
+ */
+import crypto from "node:crypto";
+import { Cron } from "croner";
+import { db } from "../db/migrations.mjs";
+import {
+  getTask,
+  getOrCreateMaestroSession,
+  startRun,
+  finishRun,
+  resetStaleTasks,
+  resolveMaestroModel,
+  initSchemaCache,
+  MAESTRO_SLOT,
+} from "./maestro.mjs";
+import { getTask as getTaskDirect } from "./maestro.mjs";
+import { recordAuxLlmUsageRow } from "../db/analytics.mjs";
+import { resolveApiPort } from "../resolveApiPort.mjs";
+import { buildMaestroContext, buildMaestroContextAsync } from "./maestroContext.mjs";
+import { MAESTRO_TOOL_DEFINITIONS, executeToolCall, getToolAvailabilityStatus } from "./maestroTools.mjs";
+
+// ── Config ─────────────────────────────────────────────────────────────────────
+
+/** Maximum number of tasks to run in parallel within a single tick.
+ *  Prevents overloading the LLM API when many tasks are due simultaneously.
+ *  Can be overridden via MAESTRO_MAX_PARALLEL env var. */
+const MAX_PARALLEL_TASKS = Math.max(1, Number(process.env.MAESTRO_MAX_PARALLEL || 3));
+
+const TICK_INTERVAL_MS = 30_000;            // check every 30 seconds
+const LLM_TIMEOUT_MS  = 600_000;           // 10 minutes (OpenRouter failover can take minutes)
+const MAX_RESULT_CHARS = 8000;             // truncate LLM response for storage (increased for detailed reports)
+const DEFAULT_MAX_TOOL_ROUNDS = 10;        // default max tool-calling rounds per task
+const LLM_MAX_RETRIES = 3;                 // max retries for transient errors (429, 502, 503, 504)
+const LLM_RETRY_BASE_MS = 5_000;           // base delay for exponential backoff (5s, 10s, 20s)
+
+const API_PORT = resolveApiPort(process.env.API_PORT);
+
+/** Fallback model for Maestro when no model_id is set on the task and
+ *  resolveMaestroModel() returns null. Can be overridden via MAESTRO_MODEL env var.
+ *  If not set, the LLM provider's default will be used (may fail if provider requires model). */
+const MAESTRO_FALLBACK_MODEL = String(process.env.MAESTRO_MODEL ?? "").trim() || undefined;
+
+/** Comma-separated list of fallback models to try when the primary model fails.
+ *  Set via MAESTRO_FALLBACK_MODELS env var. Example:
+ *  MAESTRO_FALLBACK_MODELS=deepseek/deepseek-v4-flash,nvidia/nemotron-3-super-120b-a12b
+ */
+const MAESTRO_FALLBACK_MODELS = String(process.env.MAESTRO_FALLBACK_MODELS ?? "").trim()
+  .split(",").map(s => s.trim()).filter(Boolean);
+
+/** OpenRouter provider preferences.
+ *  MAESTRO_PROVIDER_EXCLUDE — comma-separated provider slugs to ignore (lowercase).
+ *    Example: MAESTRO_PROVIDER_EXCLUDE=chutes,deepinfra
+ *    See: https://openrouter.ai/docs/guides/routing/provider-selection#ignoring-providers
+ *
+ *  MAESTRO_PROVIDER_SORT — sort providers by "throughput", "latency", or "price".
+ *    Example: MAESTRO_PROVIDER_SORT=throughput
+ *    See: https://openrouter.ai/docs/guides/routing/provider-selection#provider-sorting
+ *
+ *  MAESTRO_PROVIDER_MIN_THROUGHPUT — preferred minimum throughput (tok/s).
+ *    Providers below this are deprioritized (not excluded).
+ *    Example: MAESTRO_PROVIDER_MIN_THROUGHPUT=10
+ *
+ *  MAESTRO_PROVIDER_MAX_LATENCY — preferred maximum latency (seconds).
+ *    Providers above this are deprioritized (not excluded).
+ *    Example: MAESTRO_PROVIDER_MAX_LATENCY=30
+ */
+const MAESTRO_PROVIDER_EXCLUDE = String(process.env.MAESTRO_PROVIDER_EXCLUDE ?? "").trim()
+  .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+const MAESTRO_PROVIDER_SORT = String(process.env.MAESTRO_PROVIDER_SORT ?? "").trim().toLowerCase() || null;
+const MAESTRO_PROVIDER_MIN_THROUGHPUT = Number(process.env.MAESTRO_PROVIDER_MIN_THROUGHPUT) || null;
+const MAESTRO_PROVIDER_MAX_LATENCY = Number(process.env.MAESTRO_PROVIDER_MAX_LATENCY) || null;
+
+/** Default Maestro system prompt when none is set on the task. */
+const DEFAULT_MAESTRO_SYSTEM_PROMPT = [
+  "You are Maestro, the orchestrator agent of MF0-1984.",
+  "You are running on the OpenRouter slot OR-3 (or-3).",
+  "You have maximum access to all agent resources including memory graph, file system, and other LLM slots.",
+  "You can manage and coordinate other AI assistants, schedule tasks, and make autonomous decisions.",
+  "You have access to real-time agent state data injected below — use it instead of guessing.",
+  "When you need information or want to take action, use the provided tools (function calls).",
+  "Always base your responses on actual data from the context and tool results.",
+  "",
+  "SLOT AWARENESS:",
+  "You are on slot or-3. All OpenRouter slots (or-1, or-2, or-3) share the same OpenRouter API key.",
+  "When checking model availability or sending requests to other models, prefer using or-3 (your own slot).",
+  "Only use or-1/or-2 if you specifically need a DIFFERENT provider slot for some reason.",
+  "",
+  "TASK CREATION RULES:",
+  "1. When creating a task, ONLY call create_task ONCE. Do NOT call it again to 'fix' or 'enable' the same task.",
+  "2. If a task was created but schedule is wrong, use update_task to modify it — never create_task again.",
+  "3. When specifying modelId, ALWAYS use the full model ID from the Known Models section of the context (e.g. 'nvidia/nemotron-nano-9b-v2', NOT 'Nemotron-nano' or 'ntron-nano').",
+  "",
+  "CRITICAL OUTPUT FORMATTING RULES — VIOLATION OF ANY RULE WILL CAUSE YOUR OUTPUT TO BE REJECTED:",
+  "1. Your FINAL text response (the one WITHOUT tool calls) MUST be the FULL structured Markdown report.",
+  "   Do NOT output just a brief summary or confirmation — the COMPLETE report with ALL sections goes in your final text.",
+  "   The save_report tool is for FILE ARCHIVAL ONLY — it does NOT replace your text response.",
+  "   Your final text IS what the user sees in the chat. The file is for historical comparison only.",
+  "2. NEVER output bare shell commands like 'ps -p 53637 -o rss=' — these are tool call arguments, NOT responses.",
+  "3. NEVER output bare file paths like '/root/MF0-1984' — these are tool results, NOT responses.",
+  "4. NEVER output bare numbers, JSON dumps, or raw tool output — always INTERPRET and FORMAT the data.",
+  "5. NEVER include raw tool output, JSON dumps, or tool call traces in your final text response.",
+  "   Tool results are logged separately — your response is read by humans.",
+  "6. NEVER write things like [Tool trace: ...] or [run_bash -> {...}] — this is automatic debug info, not for you to repeat.",
+  "7. Your final response MUST be at least 300 characters long — a proper analysis, not a one-liner.",
+  "8. Use Markdown formatting: headers (##/###), bold (**key**), and MUST use Markdown TABLES (| col | col |) for structured data.",
+  "   Tables are REQUIRED for sections 1, 2, 4, 6. Bullet lists are OK only for sections 3, 5, 7.",
+  "9. Structure periodic check reports as follows. USE MARKDOWN TABLES for sections 1, 2, 4, 6 — NOT bullet lists:",
+  "   - ### 1. Состояние системы — TABLE: | Параметр | Значение | rows: Uptime, Память, Node.js, API, БД, Планировщик",
+  "   - ### 2. Планировщик задач — TABLE: | Задача | Статус | Cron | Запусков |",
+  "   - ### 3. Граф памяти — bullet list (узлы, категории, изменения)",
+  "   - ### 4. Токены и аналитика — TABLE: | Метрика | Значение |",
+  "   - ### 5. Диалоги — bullet list",
+  "   - ### 6. Провайдеры LLM — TABLE: | Слот | Статус |",
+  "   - ### 7. Файловая система — bullet list",
+  "   - ### 🟢/🟡/🔴 Вывод — 1-3 предложения",
+  "10. Use emoji status indicators: 🟢 normal, 🟡 warning, 🔴 critical.",
+  "11. PERIODIC CHECKS: ALWAYS write reports in RUSSIAN, regardless of the task title language.",
+  "    For other (non-check) tasks, write in the same language as the task title/description.",
+  "",
+  "REMINDER: When you call run_bash with a command like 'ps -p 53637 -o rss=', the tool returns the result.",
+  "Your job is to INTERPRET that result and include it in your report as human-readable text, e.g.:",
+  "  '🟢 **RSS Memory:** 126.2 MB' — NOT just 'ps -p 53637 -o rss=' or '126208'.",
+  "",
+  "IMPORTANT REPORT PERSISTENCE WORKFLOW:",
+  "For periodic check tasks, follow this workflow on EVERY run:",
+  "  A. At the START: call read_last_report to get the previous report.",
+  "  B. Gather current system data using tools (run_bash, etc.).",
+  "  C. Compare current values with the previous report — highlight CHANGES, trends, deltas.",
+  "     Example: 'Memory RSS: 126.2 MB (+2.9 MB since last check)' or 'Uptime: 2h 15m (system restarted since last check)'.",
+  "  D. Call save_report with the FULL report content — this archives it to a file for future comparisons.",
+  "  E. Your FINAL text response MUST contain the FULL report — the user reads it in the chat.",
+  "     Do NOT output just 'Report saved' or a brief summary. Output the ENTIRE report with all sections.",
+  "     The report appears in the file (via save_report) AND in the chat (via your final text) — but write it only ONCE in your text.",
+  "",
+  "If read_last_report returns found=false, this is the first run — note this and proceed normally.",
+  "The comparison data from previous reports makes your checks much more valuable — always use it.",
+  "",
+  "IMPORTANT: You have a limited number of tool-calling rounds. Gather needed information efficiently,",
+  "then provide your final analysis and summary as clean formatted text (no tool calls).",
+  "",
+  "TIMEZONE RULE — CRITICAL:",
+  "The server runs in UTC. The agent context includes the user's local timezone and current local/UTC time.",
+  "When the user mentions a time (e.g. 'at 8:51', 'tomorrow at 10'), they ALWAYS mean their LOCAL time.",
+  "You MUST convert the user's local time to UTC before setting cron expressions or next_run_at.",
+  "Example: if user's timezone is Europe/Moscow (UTC+3) and they say '8:51', the cron must be '51 5 * * *' (08:51 - 3h = 05:51 UTC).",
+  "Always double-check the conversion by referencing the 'User timezone' and 'Current time' from the System context section.",
+  "NEVER assume the user means UTC unless they explicitly say 'UTC'.",
+].join("\n");
+
+// ── Scheduler state ────────────────────────────────────────────────────────────
+
+let _tickTimer = null;
+let _running = false;   // prevent overlapping ticks
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+
+/**
+ * Start the scheduler tick loop. Safe to call multiple times (no-op if already running).
+ */
+export function startScheduler() {
+  if (_tickTimer) return;
+
+  // Initialize schema cache once — avoids repeated PRAGMA queries in hot paths
+  initSchemaCache();
+
+  console.log("[maestro-scheduler] Starting scheduler (tick: %dms, parallel: %d, model: %s, fallback: [%s], timeout: %dms, retries: %d, provider-exclude: [%s], provider-sort: %s, provider-min-throughput: %s, provider-max-latency: %s)",
+    TICK_INTERVAL_MS,
+    MAX_PARALLEL_TASKS,
+    resolveMaestroModel() || MAESTRO_FALLBACK_MODEL || "provider default",
+    MAESTRO_FALLBACK_MODELS.join(", ") || "none",
+    LLM_TIMEOUT_MS,
+    LLM_MAX_RETRIES,
+    MAESTRO_PROVIDER_EXCLUDE.join(", ") || "none",
+    MAESTRO_PROVIDER_SORT || "default",
+    MAESTRO_PROVIDER_MIN_THROUGHPUT ? `${MAESTRO_PROVIDER_MIN_THROUGHPUT} tok/s` : "none",
+    MAESTRO_PROVIDER_MAX_LATENCY ? `${MAESTRO_PROVIDER_MAX_LATENCY}s` : "none",
+  );
+
+  // Recalculate next_run_at for all enabled tasks on startup
+  _recalcAllNextRunAt();
+
+  // First tick immediately, then on interval
+  _tick();
+  _tickTimer = setInterval(_tick, TICK_INTERVAL_MS);
+  // Don't prevent process exit
+  if (_tickTimer.unref) _tickTimer.unref();
+}
+
+/**
+ * Stop the scheduler tick loop.
+ */
+export function stopScheduler() {
+  if (_tickTimer) {
+    clearInterval(_tickTimer);
+    _tickTimer = null;
+    console.log("[maestro-scheduler] Stopped");
+  }
+}
+
+/**
+ * Execute a single task by ID. Used by both the scheduler tick and the manual
+ * run API endpoint.
+ *
+ * @param {string} taskId
+ * @param {object} [opts]
+ * @param {string} [opts.sourceTaskId] — ID of the task that triggered this run (via run_task tool)
+ * @param {boolean} [opts.force] — If true, force-reset a running task to idle before executing
+ * @param {string} [opts.chainContext] — Result summary from parent task (injected into prompt for chained tasks)
+ * @param {string} [opts.agentContext] — Pre-built agent context (computed once per tick for parallel tasks)
+ * @returns {Promise<{ runId: string, success: boolean, summary?: string, error?: string }>
+ */
+export async function executeTask(taskId, opts = {}) {
+  // First, reset any stale tasks
+  resetStaleTasks();
+
+  const task = getTask(taskId);
+  if (!task) throw new Error(`Task not found: ${taskId}`);
+
+  // Handle "already running" — either force or throw
+  if (task.status === "running") {
+    if (opts.force) {
+      console.log(`[maestro-scheduler] Force-running task "${task.title}" (${task.id}) — resetting stale lock`);
+      db.prepare(`UPDATE maestro_tasks SET status = 'idle', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), taskId);
+    } else {
+      throw new Error("Task is already running. Use ?force=1 to override (or wait for the current run to finish).");
+    }
+  }
+
+  const runId = startRun(task.id, { sourceTaskId: opts.sourceTaskId });
+  console.log(`[maestro-scheduler] Executing task "${task.title}" (${task.id}), run ${runId}${opts.sourceTaskId ? ` (triggered by task ${opts.sourceTaskId})` : ""}`);
+
+  try {
+    const result = await _executeWithTools(task, opts);
+
+    finishRun(runId, {
+      status: "success",
+      resultSummary: result.content.slice(0, MAX_RESULT_CHARS),
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+      totalTokens: result.totalTokens,
+      toolTrace: result.toolTrace.length > 0 ? JSON.stringify(result.toolTrace) : null,
+      modelId: result.modelId || null,
+    });
+
+    // Record as conversation turn in the Maestro purpose session
+    _recordTurn(task, result);
+
+    // Record in analytics
+    recordAuxLlmUsageRow(
+      task.providerId || MAESTRO_SLOT,
+      "maestro_task",
+      result.promptTokens,
+      result.completionTokens,
+      result.totalTokens,
+      "",
+      "",
+    );
+
+    // Recalculate next_run_at for scheduled tasks
+    if (task.scheduleCron) {
+      recalcNextRunAt(task.id);
+    }
+
+    console.log(`[maestro-scheduler] Task "${task.title}" completed successfully (${result.totalTokens} tokens, ${result.toolTrace.length} tool calls)`);
+
+    // ── Chain trigger ───────────────────────────────────────────────
+    _triggerChain(task, "success", result.content.slice(0, 2000));
+
+    return { runId, success: true, summary: result.content.slice(0, 500) };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[maestro-scheduler] Task "${task.title}" failed:`, msg);
+
+    finishRun(runId, {
+      status: "error",
+      errorMessage: msg,
+    });
+
+    // Still recalculate next_run_at even on error so the task doesn't get stuck
+    if (task.scheduleCron) {
+      recalcNextRunAt(task.id);
+    }
+
+    // ── Chain trigger (error) ──────────────────────────────────────
+    _triggerChain(task, "error", null);
+
+    return { runId, success: false, error: msg };
+  }
+}
+
+/**
+ * Recalculate next_run_at for a task based on its cron expression.
+ * Sets next_run_at = NULL for one-shot tasks or tasks without a cron.
+ *
+ * @param {string} taskId
+ * @returns {string|null} The new next_run_at, or null
+ */
+export function recalcNextRunAt(taskId) {
+  const task = getTask(taskId);
+  if (!task || !task.scheduleCron) {
+    db.prepare(`UPDATE maestro_tasks SET next_run_at = NULL WHERE id = ?`).run(taskId);
+    return null;
+  }
+
+  try {
+    const cron = new Cron(task.scheduleCron);
+    const next = cron.next();
+    if (!next) {
+      db.prepare(`UPDATE maestro_tasks SET next_run_at = NULL WHERE id = ?`).run(taskId);
+      return null;
+    }
+    const nextIso = next.toISOString();
+    db.prepare(`UPDATE maestro_tasks SET next_run_at = ?, updated_at = ? WHERE id = ?`).run(
+      nextIso, new Date().toISOString(), taskId,
+    );
+    return nextIso;
+  } catch (e) {
+    console.warn(`[maestro-scheduler] Invalid cron "${task.scheduleCron}" for task ${taskId}:`, e.message);
+    db.prepare(`UPDATE maestro_tasks SET next_run_at = NULL, last_error = ? WHERE id = ?`).run(
+      `Invalid cron: ${e.message}`, taskId,
+    );
+    return null;
+  }
+}
+
+// ── Tick loop ──────────────────────────────────────────────────────────────────
+
+async function _tick() {
+  if (_running) return; // prevent overlapping ticks
+  _running = true;
+
+  try {
+    // Reset stale tasks on every tick
+    resetStaleTasks();
+
+    const dueTasks = _getDueTasks();
+    if (dueTasks.length === 0) return;
+
+    console.log(`[maestro-scheduler] Found ${dueTasks.length} due task(s), max parallel: ${MAX_PARALLEL_TASKS}`);
+
+    // Build agent context once for this tick — identical for all tasks running in parallel
+    const agentContext = await buildMaestroContextAsync();
+
+    // ── Parallel execution with concurrency cap ──────────────────────────────
+    // Tasks that share a chain relationship (A→B) must not run at the same time
+    // because chain triggers are fired inside executeTask. Independent tasks
+    // (no shared chain link in the current due set) can run concurrently.
+    //
+    // Strategy:
+    //  1. Partition due tasks into independent groups — tasks that are connected
+    //     via chain_to within the current due set are placed in the same group.
+    //  2. Within each group, run sequentially (to preserve chain order).
+    //  3. Across groups, run in parallel (up to MAX_PARALLEL_TASKS at a time).
+    //
+    // NOTE: _triggerChain uses fire-and-forget (.catch()), so chained child
+    // tasks may still be running when _running is set to false. This is
+    // intentional — the next tick will see them as "running" and skip them.
+    // resetStaleTasks() compensates if a chain task truly hangs.
+
+    const groups = _partitionIntoChainGroups(dueTasks);
+
+    console.log(`[maestro-scheduler] Partitioned into ${groups.length} independent group(s)`);
+
+    // Execute groups in parallel batches, each group runs its tasks sequentially
+    const groupRunners = groups.map((group) => async () => {
+      for (const task of group) {
+        try {
+          await executeTask(task.id, { agentContext });
+        } catch (e) {
+          // executeTask handles its own errors; this catches unexpected failures
+          console.error(`[maestro-scheduler] Unexpected error executing task ${task.id}:`, e);
+        }
+      }
+    });
+
+    // Run up to MAX_PARALLEL_TASKS group-runners concurrently
+    await _runWithConcurrencyLimit(groupRunners, MAX_PARALLEL_TASKS);
+
+  } finally {
+    _running = false;
+  }
+}
+
+/**
+ * Partition a list of due tasks into independent groups based on chain_to links.
+ * Tasks that are connected (directly or transitively) via chain_to within the
+ * given set are placed in the same group and will execute sequentially.
+ * Unrelated tasks are placed in separate groups and can run in parallel.
+ *
+ * @param {object[]} tasks — Due tasks from _getDueTasks()
+ * @returns {object[][]} — Array of groups; each group is an ordered array of tasks
+ */
+function _partitionIntoChainGroups(tasks) {
+  // Build a set of IDs for quick lookup
+  const idSet = new Set(tasks.map((t) => t.id));
+
+  // Build adjacency: task → its chain target (if also in the due set)
+  // We treat chain links as undirected edges for grouping purposes
+  // Note: _getDueTasks() returns raw SQLite rows (snake_case), but if ever
+  // marshalled objects are passed, chainTo would be used instead. Support both.
+  const adjacency = new Map(); // id → Set<id>
+  for (const task of tasks) {
+    if (!adjacency.has(task.id)) adjacency.set(task.id, new Set());
+    const chainTarget = task.chain_to ?? task.chainTo;
+    if (chainTarget && idSet.has(chainTarget)) {
+      adjacency.get(task.id).add(chainTarget);
+      if (!adjacency.has(chainTarget)) adjacency.set(chainTarget, new Set());
+      adjacency.get(chainTarget).add(task.id);
+    }
+  }
+
+  // Union-Find to group connected tasks
+  const parent = new Map(tasks.map((t) => [t.id, t.id]));
+  function find(id) {
+    if (parent.get(id) !== id) parent.set(id, find(parent.get(id)));
+    return parent.get(id);
+  }
+  function union(a, b) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+
+  for (const [id, neighbors] of adjacency) {
+    for (const nbr of neighbors) union(id, nbr);
+  }
+
+  // Group tasks by root
+  const groupMap = new Map();
+  for (const task of tasks) {
+    const root = find(task.id);
+    if (!groupMap.has(root)) groupMap.set(root, []);
+    groupMap.get(root).push(task);
+  }
+
+  // Within each group, sort by next_run_at so the earlier task runs first
+  // (preserves the natural execution order within a chain group)
+  const groups = [...groupMap.values()];
+  for (const group of groups) {
+    group.sort((a, b) => {
+      const ta = a.next_run_at || a.nextRunAt || "";
+      const tb = b.next_run_at || b.nextRunAt || "";
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+  }
+
+  return groups;
+}
+
+/**
+ * Run an array of async functions with a maximum concurrency limit.
+ * Uses a simple worker-pool approach: fills up to `limit` concurrent slots,
+ * and starts the next function as soon as a slot frees up.
+ *
+ * @param {Array<() => Promise<void>>} fns — Functions to run (each returns a Promise)
+ * @param {number} limit — Maximum concurrent executions
+ * @returns {Promise<void>}
+ */
+async function _runWithConcurrencyLimit(fns, limit) {
+  if (fns.length === 0) return;
+  if (limit <= 0) limit = 1;
+
+  // Use a queue + active-slot counter approach
+  const queue = [...fns];
+  let active = 0;
+
+  await new Promise((resolve, reject) => {
+    function next() {
+      // Launch as many as we can up to the limit
+      while (active < limit && queue.length > 0) {
+        const fn = queue.shift();
+        active++;
+        fn()
+          .catch((e) => {
+            // Individual group errors are already handled inside groupRunners;
+            // log here as a safety net only
+            console.error("[maestro-scheduler] Group runner error (unexpected):", e?.message ?? e);
+          })
+          .finally(() => {
+            active--;
+            if (queue.length > 0) {
+              next();
+            } else if (active === 0) {
+              resolve();
+            }
+          });
+      }
+      if (queue.length === 0 && active === 0) resolve();
+    }
+    next();
+  });
+}
+
+/**
+ * Find tasks that are due for execution.
+ * A task is due if: schedule_enabled = 1 AND status = 'idle' AND next_run_at <= NOW()
+ */
+function _getDueTasks() {
+  const now = new Date().toISOString();
+  return db.prepare(
+    `SELECT * FROM maestro_tasks
+     WHERE schedule_enabled = 1
+       AND status = 'idle'
+       AND next_run_at IS NOT NULL
+       AND next_run_at <= ?
+     ORDER BY next_run_at ASC`,
+  ).all(now);
+}
+
+/**
+ * Recalculate next_run_at for all scheduled tasks (called on startup).
+ */
+function _recalcAllNextRunAt() {
+  const tasks = db.prepare(
+    `SELECT id, schedule_cron FROM maestro_tasks WHERE schedule_enabled = 1 AND schedule_cron IS NOT NULL`,
+  ).all();
+
+  for (const t of tasks) {
+    recalcNextRunAt(t.id);
+  }
+
+  if (tasks.length > 0) {
+    console.log(`[maestro-scheduler] Recalculated next_run_at for ${tasks.length} scheduled task(s)`);
+  }
+}
+
+// ── LLM Call with Retry & Backoff ──────────────────────────────────────────────
+
+/**
+ * Make a single LLM call through the proxy with retry on transient errors.
+ * OpenRouter free/cheap models often return 429 (rate limit) or 502/503/504
+ * (upstream provider failure). This function retries with exponential backoff
+ * before giving up.
+ *
+ * @param {string} url — Full proxy URL
+ * @param {object} requestBody — JSON body for the LLM request
+ * @param {object} [opts]
+ * @param {number} [opts.timeoutMs] — Per-request timeout (default: LLM_TIMEOUT_MS)
+ * @param {number} [opts.maxRetries] — Max retries for transient errors (default: LLM_MAX_RETRIES)
+ * @returns {Promise<{ json: object, elapsedMs: number, retries: number }>}
+ */
+async function _callLlmWithRetry(url, requestBody, opts = {}) {
+  const timeoutMs = opts.timeoutMs || LLM_TIMEOUT_MS;
+  const maxRetries = opts.maxRetries ?? LLM_MAX_RETRIES;
+  let lastError = null;
+  let retries = 0;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const attemptStart = Date.now();
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === "AbortError") {
+        lastError = new Error(`LLM call timed out (${timeoutMs}ms)`);
+        // Timeout is not retryable — exit immediately
+        break;
+      }
+      lastError = e;
+      // Network errors may be transient — retry
+      if (attempt < maxRetries) {
+        retries++;
+        const delay = LLM_RETRY_BASE_MS * Math.pow(2, attempt);
+        console.warn(`[maestro-scheduler] LLM network error (attempt ${attempt + 1}/${maxRetries + 1}): ${e.message}. Retrying in ${delay}ms…`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      break;
+    }
+
+    // Successful response
+    if (res.ok) {
+      let json;
+      try {
+        json = await res.json();
+      } catch (e) {
+        lastError = new Error(`Failed to parse LLM response JSON: ${e.message}`);
+        break;
+      }
+      const elapsedMs = Date.now() - attemptStart;
+      if (retries > 0 || elapsedMs > 30_000) {
+        console.log(`[maestro-scheduler] LLM call completed: ${elapsedMs}ms, ${retries} retries, model=${requestBody.model || "default"}`);
+      }
+      return { json, elapsedMs, retries };
+    }
+
+    // Error response — check if retryable
+    const errText = await res.text().catch(() => "");
+    const status = res.status;
+
+    // Transient errors that are worth retrying
+    const isRetryable = [429, 502, 503, 504].includes(status);
+
+    if (isRetryable && attempt < maxRetries) {
+      retries++;
+      const delay = LLM_RETRY_BASE_MS * Math.pow(2, attempt);
+      console.warn(`[maestro-scheduler] LLM ${status} (attempt ${attempt + 1}/${maxRetries + 1}): ${errText.slice(0, 200)}. Retrying in ${delay}ms…`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+
+    // Non-retryable error or exhausted retries
+    lastError = new Error(`LLM proxy ${status}: ${errText.slice(0, 500)}`);
+    break;
+  }
+
+  throw lastError || new Error("LLM call failed after retries");
+}
+
+// ── LLM Execution with Tool-Calling Loop ───────────────────────────────────────
+
+/**
+ * Build OpenRouter provider preferences for the request body.
+ * Supports: ignore, sort, preferred_min_throughput, preferred_max_latency.
+ * See: https://openrouter.ai/docs/guides/routing/provider-selection
+ * @returns {object|undefined}
+ */
+function _buildProviderPrefs() {
+  const prefs = {};
+  // ignore — list of provider slugs to skip (lowercase)
+  if (MAESTRO_PROVIDER_EXCLUDE.length > 0) {
+    prefs.ignore = MAESTRO_PROVIDER_EXCLUDE;
+  }
+  // sort — "throughput" | "latency" | "price"
+  if (MAESTRO_PROVIDER_SORT) {
+    prefs.sort = MAESTRO_PROVIDER_SORT;
+  }
+  // preferred_min_throughput — minimum tokens/sec (deprioritizes slow providers)
+  if (MAESTRO_PROVIDER_MIN_THROUGHPUT) {
+    prefs.preferred_min_throughput = MAESTRO_PROVIDER_MIN_THROUGHPUT;
+  }
+  // preferred_max_latency — maximum latency in seconds (deprioritizes slow providers)
+  if (MAESTRO_PROVIDER_MAX_LATENCY) {
+    prefs.preferred_max_latency = MAESTRO_PROVIDER_MAX_LATENCY;
+  }
+  return Object.keys(prefs).length > 0 ? prefs : undefined;
+}
+
+/**
+ * Execute a task with full context injection and tool-calling support.
+ * The LLM may call tools up to maxRounds times before producing a final answer.
+ * When rounds are exhausted and the model still wants to call tools,
+ * a final call is made WITHOUT tools to force a text summary.
+ *
+ * Includes model fallback: if the primary model fails after all retries,
+ * tries each model in MAESTRO_FALLBACK_MODELS before giving up.
+ *
+ * @param {object} task
+ * @param {object} [opts]
+ * @param {string} [opts.chainContext] — parent task result for chained execution
+ * @param {string} [opts.agentContext] — pre-built agent context (avoids N calls for parallel tasks)
+ * @returns {Promise<{ content: string, promptTokens: number, completionTokens: number, totalTokens: number, toolTrace: object[] }>}
+ */
+async function _executeWithTools(task, opts = {}) {
+  const providerId = task.providerId || MAESTRO_SLOT;
+  // Model resolution: task.model_id → task.default_model → resolveMaestroModel() → MAESTRO_FALLBACK_MODEL → undefined
+  const primaryModelId = task.modelId || task.defaultModel || resolveMaestroModel() || MAESTRO_FALLBACK_MODEL || undefined;
+  const maxRounds = task.maxToolRounds || DEFAULT_MAX_TOOL_ROUNDS;
+
+  // Build model fallback chain: primary → MAESTRO_FALLBACK_MODELS
+  const modelChain = [primaryModelId];
+  for (const fb of MAESTRO_FALLBACK_MODELS) {
+    if (fb !== primaryModelId) modelChain.push(fb);
+  }
+
+  // Build the initial message array
+  const messages = [];
+
+  // 1. System prompt: task-specific override or default Maestro prompt
+  const systemPrompt = task.systemPrompt || DEFAULT_MAESTRO_SYSTEM_PROMPT;
+  messages.push({ role: "system", content: systemPrompt });
+
+  // 2. Real agent context — injected as a system message
+  // Use pre-built context from _tick() when available (avoids N calls for parallel tasks)
+  const agentContext = opts.agentContext || (await buildMaestroContextAsync());
+  messages.push({ role: "system", content: `Current agent state:\n\n${agentContext}` });
+
+  // 3. Task-specific context (memory node IDs from task.context)
+  const taskContext = _buildTaskContext(task);
+  if (taskContext) {
+    messages.push({ role: "system", content: `Task-specific context:\n${taskContext}` });
+  }
+
+  // 4. Task conversation history (previous run summaries)
+  const historyContext = _buildHistoryContext(task);
+  if (historyContext) {
+    messages.push({ role: "system", content: `Previous runs of this task:\n${historyContext}` });
+  }
+
+  // 5. Chain context (if this task was triggered by a parent task)
+  if (opts.chainContext) {
+    messages.push({ role: "system", content: `This task was triggered by a parent task (chain). The parent task's result summary:\n\n${opts.chainContext}` });
+  }
+
+  // 6. User message: concrete execution instruction based on task type
+  // The model must understand it needs to PERFORM the task, not describe it.
+  // For periodic checks, the instruction must explicitly tell the model to
+  // gather system data using tools and produce a structured report.
+  let userMessage;
+  if (task.taskType === "keeper" || (task.title && /check|monitor|verify|проверк|монитор/i.test(task.title))) {
+    // Periodic check / keeper task — Russian instruction with table examples
+    userMessage = [
+      "Выполни периодическую проверку системы ПРЯМО СЕЙЧАС.",
+      "",
+      "ШАГИ:",
+      "1. read_last_report → предыдущий отчёт",
+      "2. Инструменты (list_tasks, get_memory_nodes, run_bash, get_dialogs) → текущее состояние",
+      "3. Сравни с предыдущим → выдели ИЗМЕНЕНИЯ (дельты +/-)",
+      "4. save_report → сохрани в файл",
+      "5. Выведи ПОЛНЫЙ отчёт как финальный текст — ОДИН РАЗ, без код-блоков и тегов",
+      "",
+      "ОБЯЗАТЕЛЬНО ИСПОЛЬЗУЙ ТАБЛИЦЫ MARKDOWN! НЕ списки!",
+      "",
+      "ПРИМЕР ОТЧЁТА (строго следуй формату):",
+      "",
+      "## 📋 Периодический отчёт — Maestro MF0-1984",
+      "",
+      "### 1. Состояние системы",
+      "| Параметр | Значение |",
+      "|---|---|",
+      "| Uptime | 14 дней |",
+      "| Память (RSS) | 511 MB |",
+      "| Node.js | v20.20.2 |",
+      "| API | порт 35184 |",
+      "| База данных | SQLite ✅ |",
+      "| Планировщик | **Запущен** ✅ |",
+      "",
+      "### 2. Планировщик задач",
+      "| Задача | Статус | Cron | Запусков |",
+      "|---|---|---|---|",
+      "| Periodic check | Running ⚡ | */5 * * * * | 8 |",
+      "",
+      "### 3. Граф памяти",
+      "- **Всего узлов:** 7 | **Связей:** 10",
+      "- **Категории:**",
+      "  - `Interests` — 5 узлов",
+      "  - `People` — 1 узел",
+      "- Изменения: +1 узел",
+      "",
+      "### 4. Токены и аналитика",
+      "| Метрика | Значение |",
+      "|---|---|",
+      "| Prompt | 44 |",
+      "| Completion | 39 |",
+      "| Aux вызовов | 0 |",
+      "| Тренд | стабильный |",
+      "",
+      "### 5. Диалоги",
+      "- Всего: 3 диалога, 15 сообщений",
+      "- Последняя активность: Maestro orchestrator",
+      "",
+      "### 6. Провайдеры LLM",
+      "| Слот | Статус |",
+      "|---|---|",
+      "| or-1 | ❌ нет ключа |",
+      "| or-2 | ❌ нет ключа |",
+      "| or-3 (Maestro) | ✅ активен |",
+      "",
+      "### 7. Файловая система",
+      "- Sandbox: /root/MF0-1984/AI-FS",
+      "- Отчёты: reports/unknown-or-3-dia/",
+      "- Диск: достаточно",
+      "",
+      "### 🟢 Вывод",
+      "Система стабильна. Всё в порядке.",
+      "",
+      "ПИШИ НА РУССКОМ. ТАБЛИЦЫ ОБЯЗАТЕЛЬНЫ для секций 1, 2, 4, 6!",
+      "",
+      `Задача: ${task.title}`,
+    ].join("\n");
+  } else {
+    // Regular task — standard execution instruction
+    userMessage = `EXECUTE this task now. Do NOT describe or summarize the task — actually perform it using tools and produce a detailed report.\n\nTask: ${task.title}`;
+  }
+  if (task.description) userMessage += `\n\n${task.description}`;
+  messages.push({ role: "user", content: userMessage });
+
+  // Filter tool definitions to only include available tools
+  const toolStatus = getToolAvailabilityStatus();
+  const availableTools = MAESTRO_TOOL_DEFINITIONS.filter(
+    (t) => toolStatus.details[t.function.name]?.available !== false,
+  );
+
+  console.log(`[maestro-scheduler] Tools available: ${availableTools.length}/${MAESTRO_TOOL_DEFINITIONS.length} (filtered: ${MAESTRO_TOOL_DEFINITIONS.length - availableTools.length} unavailable)`);
+
+  // ── Model fallback loop ──────────────────────────────────────────────────
+  let lastModelError = null;
+
+  for (const modelId of modelChain) {
+    if (!modelId) continue;
+
+    // Tool-calling loop
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+    let totalTokens = 0;
+    let finalContent = "";
+    const toolTrace = []; // log of all tool calls and results
+    let roundsUsed = 0;
+    const taskStartMs = Date.now();
+
+    try {
+      for (let round = 0; round <= maxRounds; round++) {
+        // Build the request body
+        // On the last allowed round (round === maxRounds), remove tools to force a text summary
+        const isFinalRound = (round === maxRounds);
+        const requestBody = {
+          messages,
+          max_tokens: 4096,
+          ...(isFinalRound ? {} : { tools: availableTools }),
+          // NOTE: tool_choice is NOT sent because many OpenRouter models (e.g. nemotron)
+          // do not support it and return 404. The model will use tools automatically
+          // when they are available and it needs them.
+        };
+        // On the final round (tools removed), allow more tokens for the detailed report
+        if (isFinalRound) requestBody.max_tokens = 8192;
+        requestBody.model = modelId;
+
+        // OpenRouter provider preferences (exclude slow/unreliable providers)
+        const providerPrefs = _buildProviderPrefs();
+        if (providerPrefs) requestBody.provider = providerPrefs;
+
+        // Call the LLM (with retry + backoff)
+        const url = `http://127.0.0.1:${API_PORT}/api/llm/${providerId}/api/v1/chat/completions`;
+        const { json } = await _callLlmWithRetry(url, requestBody);
+
+        // Accumulate token usage
+        const usage = json?.usage || {};
+        totalPromptTokens += Number(usage.prompt_tokens) || 0;
+        totalCompletionTokens += Number(usage.completion_tokens) || 0;
+        totalTokens += Number(usage.total_tokens) || (Number(usage.prompt_tokens) || 0) + (Number(usage.completion_tokens) || 0);
+
+        const choice = json?.choices?.[0];
+        if (!choice) throw new Error("No choices in LLM response");
+
+        const assistantMessage = choice.message;
+
+        // If this is the final round (no tools offered), accept whatever text we get
+        if (isFinalRound) {
+          finalContent = assistantMessage.content || "[Maestro: final summary round produced no text content.]";
+          break;
+        }
+
+        // Check if the model wants to call tools
+        if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+          roundsUsed++;
+          // Add the assistant's message (with tool calls) to the conversation
+          messages.push(assistantMessage);
+
+          // Execute each tool call
+          for (const toolCall of assistantMessage.tool_calls) {
+            const toolName = toolCall.function?.name;
+            let toolArgs = {};
+            try {
+              toolArgs = JSON.parse(toolCall.function?.arguments || "{}");
+            } catch {
+              toolArgs = {};
+            }
+
+            console.log(`[maestro-scheduler] Tool call [round ${roundsUsed}/${maxRounds}]: ${toolName}(${JSON.stringify(toolArgs).slice(0, 200)})`);
+
+            const toolResultRaw = await executeToolCall(toolName, toolArgs, { sourceTaskId: task.id });
+            let toolResultParsed;
+            try { toolResultParsed = JSON.parse(toolResultRaw); } catch { toolResultParsed = toolResultRaw; }
+
+            // Record in trace
+            toolTrace.push({
+              round: roundsUsed,
+              tool: toolName,
+              args: toolArgs,
+              result: toolResultParsed,
+            });
+
+            // Add the tool result to the conversation
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: toolResultRaw,
+            });
+          }
+
+          // Continue the loop — the LLM will see the tool results and respond
+          continue;
+        }
+
+        // No tool calls — this is the final text response
+        finalContent = assistantMessage.content || "";
+        break;
+      }
+
+      // Post-process: clean up any raw tool trace leakage from the final content
+      finalContent = _cleanFinalOutput(finalContent);
+
+      // Quality gate: if the cleaned output is poor quality, force a summary call
+      const isPoor = _isPoorQualityOutput(finalContent, task);
+      if (isPoor && toolTrace.length > 0) {
+        console.log(`[maestro-scheduler] Quality gate triggered: final output is poor quality (len=${finalContent.length}), forcing summary call`);
+        finalContent = "";  // reset to trigger the forced summary below
+      }
+
+      // If we exhausted all rounds without getting a text response,
+      // or quality gate was triggered, force one more call without tools
+      if (!finalContent) {
+        const reason = toolTrace.length > 0
+          ? "tool results were collected but the final output was empty or poor quality"
+          : "all tool rounds were exhausted without getting a text response";
+        console.log(`[maestro-scheduler] Forcing final summary call (${reason})`);
+        try {
+          // Determine if this is a periodic check task — use Russian summary prompt for those
+          const isPeriodicCheck = task.taskType === "keeper" || (task.title && /check|monitor|verify|проверк|монитор/i.test(task.title));
+          const summaryUserContent = isPeriodicCheck
+            ? [
+                "На основе собранных данных, составь ПОЛНЫЙ отчёт на РУССКОМ языке.",
+                "",
+                "ОБЯЗАТЕЛЬНО: используй ТАБЛИЦЫ Markdown (| col | col |) для секций 1, 2, 4, 6.",
+                "НЕ используй списки для этих секций — ТОЛЬКО таблицы.",
+                "Пример: | Параметр | Значение | затем |---|---| затем строки с данными.",
+                "НЕ дублируй отчёт. НЕ оборачивай в код-блоки. Минимум 500 символов.",
+              ].join("\n")
+            : [
+                "Based on all the tool results and data gathered above, provide a comprehensive, clean, structured summary.",
+                "",
+                "CRITICAL FORMATTING RULES FOR YOUR RESPONSE:",
+                "1. Write in clean Markdown with headers (##), bullet points (-), and bold (**key**).",
+                "2. Do NOT include raw tool output, JSON dumps, shell commands, file paths, or tool call traces.",
+                "3. Do NOT echo or repeat any shell commands (ps, df, cat, etc.) — only their RESULTS as human-readable text.",
+                "4. Structure your response as a report with clear sections.",
+                "5. Use emoji status indicators where appropriate: 🟢 normal, 🟡 warning, 🔴 critical.",
+                "6. Your response must be at least 300 characters long — a proper analysis, not a one-liner.",
+              ].join("\n");
+
+          const summaryRequestBody = {
+            messages: [
+              ...messages,
+              { role: "user", content: summaryUserContent },
+            ],
+            max_tokens: isPeriodicCheck ? 8192 : 4096,
+            model: modelId,
+            // No tools — force text-only response
+          };
+          const providerPrefs = _buildProviderPrefs();
+          if (providerPrefs) summaryRequestBody.provider = providerPrefs;
+
+          const url = `http://127.0.0.1:${API_PORT}/api/llm/${providerId}/api/v1/chat/completions`;
+          const { json } = await _callLlmWithRetry(url, summaryRequestBody);
+
+          const usage = json?.usage || {};
+          totalPromptTokens += Number(usage.prompt_tokens) || 0;
+          totalCompletionTokens += Number(usage.completion_tokens) || 0;
+          totalTokens += Number(usage.total_tokens) || 0;
+          finalContent = json?.choices?.[0]?.message?.content || "[Maestro: summary call produced no content.]";
+          // Clean the forced summary too
+          finalContent = _cleanFinalOutput(finalContent);
+        } catch (e) {
+          finalContent = `[Maestro: tool-calling rounds exhausted. Summary call error: ${e instanceof Error ? e.message : String(e)}]`;
+        }
+      }
+
+      // ── Success! Return the result ──
+      const elapsedMs = Date.now() - taskStartMs;
+      console.log(`[maestro-scheduler] Task completed with model ${modelId}: ${elapsedMs}ms total, ${totalTokens} tokens, ${toolTrace.length} tool calls`);
+
+      return {
+        content: finalContent,
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        totalTokens: totalTokens,
+        toolTrace,
+        modelId,
+      };
+
+    } catch (err) {
+      // This model failed — try the next one in the fallback chain
+      const msg = err instanceof Error ? err.message : String(err);
+      lastModelError = msg;
+      const isPrimary = (modelId === primaryModelId);
+
+      if (modelChain.indexOf(modelId) < modelChain.length - 1) {
+        const nextModel = modelChain[modelChain.indexOf(modelId) + 1];
+        console.warn(`[maestro-scheduler] Model ${modelId} failed (${isPrimary ? "primary" : "fallback"}): ${msg.slice(0, 200)}`);
+        console.log(`[maestro-scheduler] Falling back to model: ${nextModel}`);
+      } else {
+        console.error(`[maestro-scheduler] All models in fallback chain failed. Last error: ${msg.slice(0, 200)}`);
+      }
+      continue; // try next model
+    }
+  }
+
+  // All models failed
+  throw new Error(`All models failed. Last error: ${lastModelError || "unknown"}`);
+}
+
+// ── Output Post-Processing ────────────────────────────────────────────────────
+
+/**
+ * Clean up the final LLM output by removing any raw tool trace leakage.
+ * Sometimes the model includes raw tool results in its text response,
+ * even when instructed not to. This function strips common patterns.
+ *
+ * @param {string} content
+ * @returns {string}
+ */
+function _cleanFinalOutput(content) {
+  if (!content) return content;
+
+  let cleaned = content;
+
+  // Remove "[Tool trace: ...]" blocks (may span multiple lines)
+  cleaned = cleaned.replace(/\[Tool trace:[\s\S]*?\]/g, "").trim();
+
+  // Remove patterns like "[run_bash] → {...}" or "[tool_name] → {...}"
+  cleaned = cleaned.replace(/\[\w+\]\s*→\s*\{[^}]*\}/g, "").trim();
+
+  // Remove lines that look like raw shell commands (e.g. "ps -p 53637 -o rss=", "df -h", "cat /proc/meminfo")
+  cleaned = cleaned.replace(/^\s*(?:ps|df|cat|ls|pwd|top|free|uptime|whoami|hostname|uname|echo|head|tail|wc|grep|find|du|stat|which|env|date|ip|ss|netstat|curl|wget)\s+.*$/gm, "").trim();
+
+  // Remove bare absolute paths on their own line (e.g. "/root/MF0-1984")
+  cleaned = cleaned.replace(/^\s*\/[\w/.\-]+\s*$/gm, "").trim();
+
+  // Remove lines that are just a number or just bytes/KBs (raw tool output)
+  cleaned = cleaned.replace(/^\s*\d+(\.\d+)?\s*(KB|MB|GB|bytes|kB|mB|gB)?\s*$/gm, "").trim();
+
+  // Remove leftover empty lines from removals (collapse 3+ newlines to 2)
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+  return cleaned;
+}
+
+/**
+ * Check if the final LLM output looks like poor quality — i.e. raw tool
+ * output, bare commands, bare paths, or too short to be a real report.
+ * Returns true if the content should be replaced with a forced summary.
+ *
+ * @param {string} content — The cleaned final output
+ * @param {object} task — The task object (for context about expected output)
+ * @returns {boolean}
+ */
+function _isPoorQualityOutput(content, task) {
+  if (!content) return true;
+
+  const trimmed = content.trim();
+
+  // 1. Too short — a real report should be at least 200 chars
+  if (trimmed.length < 200) return true;
+
+  // 2. Looks like a raw shell command (single line starting with known commands)
+  const rawCmdPattern = /^(?:ps|df|cat|ls|pwd|top|free|uptime|whoami|hostname|uname|echo|head|tail|wc|grep|find|du|stat|which|env|date|ip|ss|netstat|curl|wget|npm|node|python|bash|sh)\s/;
+  if (rawCmdPattern.test(trimmed)) return true;
+
+  // 3. Looks like a bare absolute path
+  if (/^\/[\w/.\-]+$/.test(trimmed)) return true;
+
+  // 4. No Markdown formatting at all — a real report should have headers, bullets, or bold
+  const hasMarkdown = /[#*_`]/.test(trimmed);
+  if (!hasMarkdown && trimmed.length < 500) return true;
+
+  // 5. Content is mostly JSON or key=value pairs (raw tool output style)
+  const jsonLikeLines = trimmed.split('\n').filter(l => /^\s*["\w]+\s*[:=]\s*/.test(l)).length;
+  const totalLines = trimmed.split('\n').filter(l => l.trim()).length;
+  if (totalLines > 0 && jsonLikeLines / totalLines > 0.7) return true;
+
+  // 6. For periodic check tasks — check for required report format
+  const isPeriodicCheck = task.taskType === "keeper" || (task.title && /check|monitor|verify|проверк|монитор/i.test(task.title));
+  if (isPeriodicCheck) {
+    // Must have at least 3 ### headers
+    const sectionHeaders = (trimmed.match(/^###?\s+/gm) || []).length;
+    if (sectionHeaders < 3) {
+      console.log(`[maestro-scheduler] Quality gate: periodic check report has only ${sectionHeaders} section headers (expected 7)`);
+      return true;
+    }
+
+    // Must contain Russian text (Cyrillic characters)
+    const hasRussian = /[а-яА-ЯёЁ]{3,}/.test(trimmed);
+    if (!hasRussian) {
+      console.log(`[maestro-scheduler] Quality gate: periodic check report is NOT in Russian (no Cyrillic found)`);
+      return true;
+    }
+
+    // Must contain Markdown tables (|---| pattern) — at least 1 table
+    const tableCount = (trimmed.match(/\|[-:]+\|/g) || []).length;
+    if (tableCount < 1) {
+      console.log(`[maestro-scheduler] Quality gate: periodic check report has NO Markdown tables (expected tables for sections 1,2,4,6)`);
+      return true;
+    }
+
+    // Must be at least 500 chars
+    if (trimmed.length < 500) {
+      console.log(`[maestro-scheduler] Quality gate: periodic check report too short (${trimmed.length} chars, expected 500+)`);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Trigger a chained task after the current task completes.
+ * Checks if the current task has chain_to set, and if the chain_condition
+ * matches the completion status.
+ *
+ * @param {object} task — The task that just completed
+ * @param {"success"|"error"} status — The completion status
+ * @param {string|null} resultSummary — The result summary (for chain context injection)
+ */
+function _triggerChain(task, status, resultSummary) {
+  try {
+    // Read chain_to and chain_condition from the DB (in case they were updated during execution)
+    const freshTask = db.prepare(`SELECT chain_to, chain_condition FROM maestro_tasks WHERE id = ?`).get(task.id);
+    if (!freshTask || !freshTask.chain_to) return;
+
+    const chainCondition = freshTask.chain_condition || "success";
+    const shouldTrigger =
+      chainCondition === "always" ||
+      chainCondition === status;
+
+    if (!shouldTrigger) {
+      console.log(`[maestro-scheduler] Chain skipped: task "${task.title}" → ${freshTask.chain_to} (condition: ${chainCondition}, status: ${status})`);
+      return;
+    }
+
+    const targetTask = getTask(freshTask.chain_to);
+    if (!targetTask) {
+      console.warn(`[maestro-scheduler] Chain target task ${freshTask.chain_to} not found, skipping chain`);
+      return;
+    }
+
+    if (targetTask.status === "running") {
+      console.log(`[maestro-scheduler] Chain target "${targetTask.title}" is already running, skipping chain trigger`);
+      return;
+    }
+
+    console.log(`[maestro-scheduler] Triggering chain: "${task.title}" → "${targetTask.title}" (condition: ${chainCondition}, status: ${status})`);
+
+    // Execute the chained task asynchronously (fire-and-forget, don't block the current flow)
+    // Pass chainContext so the child knows what the parent found
+    executeTask(targetTask.id, {
+      sourceTaskId: task.id,
+      chainContext: resultSummary || `(Parent task "${task.title}" completed with status: ${status})`,
+    }).catch((e) => {
+      console.error(`[maestro-scheduler] Chained task "${targetTask.title}" execution error:`, e instanceof Error ? e.message : String(e));
+    });
+  } catch (e) {
+    console.warn(`[maestro-scheduler] Chain trigger error for task ${task.id}:`, e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * Build task-specific context from task.context node IDs.
+ *
+ * @param {object} task
+ * @returns {string}
+ */
+function _buildTaskContext(task) {
+  const parts = [];
+
+  // If context specifies node IDs, fetch them
+  if (task.context?.nodeIds && Array.isArray(task.context.nodeIds) && task.context.nodeIds.length > 0) {
+    const ids = task.context.nodeIds.slice(0, task.maxContextNodes || 20);
+    const placeholders = ids.map(() => "?").join(",");
+    try {
+      const rows = db.prepare(
+        `SELECT category, label, blob FROM memory_graph_nodes WHERE id IN (${placeholders})`,
+      ).all(...ids);
+
+      for (const row of rows) {
+        parts.push(`[${row.category}] ${row.label}: ${String(row.blob).slice(0, 500)}`);
+      }
+    } catch {
+      // ignore DB errors
+    }
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * Build conversation history context from previous runs of this task.
+ * Shows the last N run summaries so Maestro has continuity.
+ *
+ * @param {object} task
+ * @returns {string}
+ */
+function _buildHistoryContext(task) {
+  if (!task.conversationHistory || task.conversationHistory.length === 0) return "";
+
+  const lines = task.conversationHistory.map((entry, i) => {
+    const num = task.conversationHistory.length - i;
+    // Clean old summaries that may contain raw tool trace from previous versions
+    const rawSummary = String(entry.summary || "").slice(0, 300);
+    const cleanSummary = _cleanFinalOutput(rawSummary);
+    return `  Run #${entry.runCount || num} (${entry.at}): ${cleanSummary}`;
+  });
+
+  return lines.join("\n");
+}
+
+/**
+ * Record the task execution result as a conversation turn in the Maestro session.
+ *
+ * @param {object} task
+ * @param {{ content: string, promptTokens: number, completionTokens: number, totalTokens: number, toolTrace: object[] }} result
+ */
+function _recordTurn(task, result) {
+  try {
+    const session = getOrCreateMaestroSession();
+    const now = new Date().toISOString();
+    const providerId = task.providerId || MAESTRO_SLOT;
+
+    // Store the clean result (tool trace is stored separately in the run record)
+    const assistantText = result.content.slice(0, MAX_RESULT_CHARS);
+
+    db.prepare(
+      `INSERT INTO conversation_turns
+         (id, dialog_id, user_text, assistant_text,
+          requested_provider_id, responding_provider_id, responding_model_id,
+          request_type, user_message_at, assistant_message_at,
+          llm_prompt_tokens, llm_completion_tokens, llm_total_tokens)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      session.dialogId,
+      `[Maestro Task: ${task.title}]${task.description ? " " + task.description : ""}`,
+      assistantText,
+      providerId,
+      providerId,
+      result.modelId || task.modelId || null,
+      "maestro",
+      now,
+      now,
+      result.promptTokens,
+      result.completionTokens,
+      result.totalTokens,
+    );
+  } catch (e) {
+    // Don't fail the execution if turn recording fails
+    console.warn("[maestro-scheduler] Failed to record conversation turn:", e?.message ?? e);
+  }
+}
